@@ -1,0 +1,1428 @@
+// WrapShop OS — Prisma schema
+// Every business row carries `organizationId` (denormalized for RLS + defense in depth).
+// Soft delete via `deletedAt` on records worth keeping historically.
+// See /Users/hangry_mac_1/.claude/plans/external-api-steady-lake.md §3 for the full model.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["public"]
+}
+
+// ============================================================================
+// ==== IDENTITY & TENANCY ====================================================
+// ============================================================================
+
+model Organization {
+  id                 String    @id @default(uuid()) @db.Uuid
+  slug               String    @unique
+  name               String
+  tier               String    @default("starter") // "starter" | "pro" | "enterprise"
+  subscriptionStatus String    @default("trialing")
+  settings           Json      @default("{}")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  locations             Location[]
+  members               OrgMember[]
+  roles                 Role[]
+  invitations           Invitation[]
+  featureOverrides      FeatureOverride[]
+  integrations          ExternalIntegration[]
+  webhookEvents         WebhookEvent[]
+  notifications         Notification[]
+  files                 File[]
+  auditLogs             AuditLog[]
+  timelineEvents        TimelineEvent[]
+  leads                 Lead[]
+  customers             Customer[]
+  vehicles              Vehicle[]
+  serviceCategories     ServiceCategory[]
+  services              Service[]
+  materials             Material[]
+  materialRolls         MaterialRoll[]
+  vendors               Vendor[]
+  quotes                Quote[]
+  jobs                  Job[]
+  bays                  Bay[]
+  checklistTemplates    ChecklistTemplate[]
+  scheduleBlocks        ScheduleBlock[]
+  availabilities        Availability[]
+  holidays              Holiday[]
+  timeEntries           TimeEntry[]
+  messageThreads        MessageThread[]
+  messages              Message[]
+  messageTemplates      MessageTemplate[]
+  inventoryTransactions InventoryTransaction[]
+  warranties            Warranty[]
+  aftercareTemplates    AftercareTemplate[]
+  reviewRequests        ReviewRequest[]
+  invoices              Invoice[]
+  payments              Payment[]
+  deposits              Deposit[]
+  accountingConnections AccountingConnection[]
+  accountingSyncRecords AccountingSyncRecord[]
+
+  @@map("organizations")
+  @@schema("public")
+}
+
+model Location {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  name           String
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  region         String?
+  postalCode     String?
+  country        String    @default("US")
+  timezone       String    @default("America/Denver")
+  hours          Json      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      OrgMember[]
+  bays         Bay[]
+  jobs         Job[]
+
+  @@index([organizationId])
+  @@map("locations")
+  @@schema("public")
+}
+
+// Profile mirror of auth.users. `id` = auth.users.id.
+// Populated by trigger `on_auth_user_created`.
+model User {
+  id        String    @id @db.Uuid
+  email     String    @unique
+  name      String?
+  phone     String?
+  avatarUrl String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  memberships      OrgMember[]
+  invitationsSent  Invitation[]      @relation("invitedBy")
+  featureOverrides FeatureOverride[]
+  filesUploaded    File[]
+  auditLogsAsActor AuditLog[]
+  notifications    Notification[]
+  timelineEvents   TimelineEvent[]   @relation("timelineActor")
+
+  @@map("users")
+  @@schema("public")
+}
+
+model OrgMember {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  userId         String   @db.Uuid
+  roleId         String   @db.Uuid
+  locationId     String?  @db.Uuid
+  status         String   @default("active") // "active" | "suspended"
+  joinedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+  location     Location?    @relation(fields: [locationId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("org_members")
+  @@schema("public")
+}
+
+// Roles: system roles have organizationId = null; org-custom roles have it set.
+model Role {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String?  @db.Uuid
+  key            String // "owner" | "admin" | "manager" | ... | custom slug
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions  RolePermission[]
+  members      OrgMember[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("roles")
+  @@schema("public")
+}
+
+model Permission {
+  key         String @id
+  category    String
+  description String
+
+  roles RolePermission[]
+
+  @@map("permissions")
+  @@schema("public")
+}
+
+model RolePermission {
+  roleId        String @db.Uuid
+  permissionKey String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@id([roleId, permissionKey])
+  @@map("role_permissions")
+  @@schema("public")
+}
+
+model Invitation {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @db.Uuid
+  email           String
+  roleId          String    @db.Uuid
+  invitedByUserId String    @db.Uuid
+  token           String    @unique
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("invitedBy", fields: [invitedByUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([email])
+  @@map("invitations")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== FEATURE FLAGS =========================================================
+// ============================================================================
+
+model FeatureOverride {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  scope          String // "org" | "location" | "user"
+  scopeId        String?   @db.Uuid // null when scope=org and applies to whole org
+  userId         String?   @db.Uuid // populated when scope=user
+  featureKey     String
+  state          String // FeatureState from src/lib/features.ts
+  expiresAt      DateTime?
+  metadata       Json      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, scope, scopeId, featureKey])
+  @@index([organizationId])
+  @@map("feature_overrides")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== INTEGRATIONS ==========================================================
+// ============================================================================
+
+model ExternalIntegration {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  capability     String // "vehicle_data" | "email" | "accounting" | ...
+  provider       String // "nhtsa" | "resend" | "quickbooks" | ...
+  enabled        Boolean   @default(true)
+  config         Json      @default("{}") // AES-GCM encrypted for OAuth tokens
+  status         String    @default("unknown") // "healthy" | "degraded" | "unauthorized" | "unknown"
+  lastCheckedAt  DateTime?
+  lastErrorAt    DateTime?
+  lastErrorMsg   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, capability, provider])
+  @@index([organizationId])
+  @@map("external_integrations")
+  @@schema("public")
+}
+
+// Idempotency ledger for inbound webhooks.
+model WebhookEvent {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String?   @db.Uuid // nullable — some webhooks route to an org after processing
+  source         String // "quickbooks" | "resend" | ...
+  externalId     String
+  payload        Json
+  receivedAt     DateTime  @default(now())
+  processedAt    DateTime?
+  errorMsg       String?
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@unique([source, externalId])
+  @@index([source, processedAt])
+  @@map("webhook_events")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== NOTIFICATIONS =========================================================
+// ============================================================================
+
+model Notification {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  userId         String    @db.Uuid
+  type           String // "quote.approved" | "message.received" | ...
+  title          String
+  body           String?
+  entityRef      Json      @default("{}") // { entityType, entityId, url }
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId, readAt])
+  @@map("notifications")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== FILES =================================================================
+// ============================================================================
+
+model File {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @db.Uuid
+  uploadedByUserId String?   @db.Uuid
+  storagePath      String // path in Supabase Storage bucket
+  mimeType         String
+  sizeBytes        Int
+  category         String // "photo" | "signature" | "pdf" | "inspection" | ...
+  entityType       String? // "job" | "quote" | "customer" | ...
+  entityId         String?   @db.Uuid
+  thumbnails       Json      @default("{}") // { thumb, medium }
+  metadata         Json      @default("{}")
+  createdAt        DateTime  @default(now())
+  deletedAt        DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy   User?        @relation(fields: [uploadedByUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+  @@map("files")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== AUDIT & TIMELINE ======================================================
+// ============================================================================
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  actorUserId    String?  @db.Uuid
+  action         String // "create" | "update" | "delete" | "approve" | ...
+  entityType     String
+  entityId       String
+  before         Json?
+  after          Json?
+  ip             String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation(fields: [actorUserId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+  @@schema("public")
+}
+
+// Unified timeline for entity-centric views (customer, vehicle, job, quote).
+model TimelineEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  entityType     String // "customer" | "vehicle" | "job" | ...
+  entityId       String   @db.Uuid
+  kind           String // "note.added" | "quote.sent" | "photo.uploaded" | ...
+  actorUserId    String?  @db.Uuid
+  data           Json     @default("{}")
+  occurredAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation("timelineActor", fields: [actorUserId], references: [id])
+
+  @@index([organizationId, entityType, entityId, occurredAt])
+  @@map("timeline_events")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== CRM: LEADS, CUSTOMERS, VEHICLES =======================================
+// ============================================================================
+
+model Lead {
+  id                  String    @id @default(uuid()) @db.Uuid
+  organizationId      String    @db.Uuid
+  locationId          String?   @db.Uuid
+  name                String
+  email               String?
+  phone               String?
+  preferredContact    String? // "phone" | "email" | "sms"
+  budgetCents         Int?
+  notes               String?
+  source              String    @default("other") // matches LEAD_SOURCES catalog
+  status              String    @default("new") // matches LEAD_STAGES catalog
+  requestedServices   String[]
+  vehicleDescription  String? // free-text before a Vehicle record exists
+  tags                String[]
+  assignedToUserId    String?   @db.Uuid
+  convertedCustomerId String?   @db.Uuid
+  convertedVehicleId  String?   @db.Uuid
+  convertedAt         DateTime?
+  followUpAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  convertedCustomer Customer?    @relation("leadToCustomer", fields: [convertedCustomerId], references: [id], onDelete: SetNull)
+  convertedVehicle  Vehicle?     @relation("leadToVehicle", fields: [convertedVehicleId], references: [id], onDelete: SetNull)
+
+  // Managed by prisma/sql/fts-phase3.sql (STORED generated column). Prisma sees
+  // it but won't touch it because `tsvector` is not a native Prisma type.
+  search Unsupported("tsvector")? @default(dbgenerated())
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([convertedCustomerId])
+  @@map("leads")
+  @@schema("public")
+}
+
+model Customer {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @db.Uuid
+  type             String    @default("individual") // "individual" | "business"
+  name             String // display name (person or business)
+  businessName     String?
+  email            String?
+  phone            String?
+  altPhone         String?
+  addressLine1     String?
+  addressLine2     String?
+  city             String?
+  region           String?
+  postalCode       String?
+  country          String    @default("US")
+  tags             String[]
+  notes            String?
+  marketingConsent Boolean   @default(false)
+  referralSource   String?
+  qboCustomerId    String? // populated by Phase 8 QBO sync
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vehicles       Vehicle[]
+  leads          Lead[]          @relation("leadToCustomer")
+  quotes         Quote[]
+  jobs           Job[]
+  messageThreads MessageThread[]
+  warranties     Warranty[]
+  reviewRequests ReviewRequest[]
+  invoices       Invoice[]
+  payments       Payment[]
+  deposits       Deposit[]
+
+  search Unsupported("tsvector")? @default(dbgenerated())
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, name])
+  @@index([email])
+  @@index([phone])
+  @@map("customers")
+  @@schema("public")
+}
+
+model Vehicle {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  customerId     String?   @db.Uuid // nullable: shop can log a vehicle before attaching to a customer
+  vin            String?
+  year           Int?
+  make           String?
+  model          String?
+  trim           String?
+  bodyStyle      String?
+  color          String?
+  plate          String?
+  plateState     String?
+  mileage        Int?
+  notes          String?
+  decodedData    Json      @default("{}") // full NHTSA payload; permanent cache
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  leads        Lead[]       @relation("leadToVehicle")
+  quotes       Quote[]
+  jobs         Job[]
+
+  search Unsupported("tsvector")? @default(dbgenerated())
+
+  @@index([organizationId, customerId])
+  @@index([organizationId, createdAt])
+  @@index([vin])
+  @@index([plate])
+  @@map("vehicles")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== CATALOG: SERVICES, MATERIALS, VENDORS =================================
+// ============================================================================
+
+model ServiceCategory {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  key            String // "wraps" | "ppf" | "tint" | "ceramic" | "detail" | custom
+  name           String
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  services           Service[]
+  aftercareTemplates AftercareTemplate[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("service_categories")
+  @@schema("public")
+}
+
+model Service {
+  id                  String    @id @default(uuid()) @db.Uuid
+  organizationId      String    @db.Uuid
+  categoryId          String?   @db.Uuid
+  sku                 String?
+  name                String
+  description         String?
+  active              Boolean   @default(true)
+  // Pricing model — drives PricingEngine branch:
+  //   "flat"     — flat priceCents
+  //   "coverage" — priceCents per sqft * coverageSqft (or defaultCoverageSqft)
+  //   "hourly"   — hourlyRateCents * estimatedHours
+  //   "matrix"   — matrixJson[vehicleSize] * base (legacy vehicle-size mapping)
+  //   "variable" — matrixJson holds { variableType, variableLabel, options: [{ key, label, priceCents }] }
+  pricingModel        String    @default("flat")
+  // Product / material base price. If laborCostCents is also set and
+  // productOnly=false, the quote-line total is priceCents + laborCostCents.
+  priceCents          Int       @default(0)
+  // Optional install/labor cost. Ignored when productOnly=true.
+  laborCostCents      Int?
+  // If true, service is materials only — no labor component even if
+  // laborCostCents was previously set on the row.
+  productOnly         Boolean   @default(false)
+  hourlyRateCents     Int?
+  estimatedHours      Decimal?  @db.Decimal(6, 2)
+  defaultCoverageSqft Decimal?  @db.Decimal(8, 2)
+  matrixJson          Json      @default("{}")
+  // Rough estimates surfaced in quote UI — override per line.
+  defaultLaborHours   Decimal?  @db.Decimal(6, 2)
+  defaultMaterialSqft Decimal?  @db.Decimal(8, 2)
+  defaultDurationDays Int?
+  taxable             Boolean   @default(true)
+  depositPercent      Int       @default(0) // 0-100
+  aftercareTemplate   String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category     ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  search Unsupported("tsvector")? @default(dbgenerated())
+
+  @@index([organizationId])
+  @@index([organizationId, active])
+  @@map("services")
+  @@schema("public")
+}
+
+model Vendor {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  name           String
+  contactName    String?
+  contactEmail   String?
+  contactPhone   String?
+  website        String?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  materials     Material[]
+  materialRolls MaterialRoll[]
+
+  @@index([organizationId])
+  @@map("vendors")
+  @@schema("public")
+}
+
+model Material {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @db.Uuid
+  vendorId         String?   @db.Uuid
+  name             String
+  sku              String?
+  category         String // "vinyl" | "clear_ppf" | "colored_ppf" | "matte_ppf" | "tint" | "ceramic" | "laminate" | "print_media"
+  manufacturer     String? // "3M", "Avery Dennison", "XPEL", "STEK", "LLumar", ...
+  series           String? // e.g. "2080" or "SW900"
+  film             String? // finish/type descriptor
+  color            String?
+  finish           String? // "gloss" | "satin" | "matte" | "metallic" | "chrome"
+  widthIn          Decimal?  @db.Decimal(6, 2)
+  costPerFootCents Int? // reference cost — actual is on the roll
+  active           Boolean   @default(true)
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vendor       Vendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  rolls        MaterialRoll[]
+
+  @@index([organizationId])
+  @@index([organizationId, category])
+  @@map("materials")
+  @@schema("public")
+}
+
+model MaterialRoll {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @db.Uuid
+  materialId        String    @db.Uuid
+  vendorId          String?   @db.Uuid
+  rollNumber        String?
+  lotNumber         String?
+  widthIn           Decimal   @db.Decimal(6, 2)
+  startingLengthYd  Decimal   @db.Decimal(8, 2)
+  remainingLengthYd Decimal   @db.Decimal(8, 2)
+  costCents         Int
+  receivedAt        DateTime  @default(now())
+  retiredAt         DateTime?
+  location          String? // "Bay 1 shelf B"
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  material     Material               @relation(fields: [materialId], references: [id])
+  vendor       Vendor?                @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  transactions InventoryTransaction[]
+
+  @@index([organizationId])
+  @@index([organizationId, materialId])
+  @@index([retiredAt])
+  @@map("material_rolls")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== QUOTES ================================================================
+// ============================================================================
+
+model Quote {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @db.Uuid
+  customerId         String    @db.Uuid
+  vehicleId          String?   @db.Uuid
+  number             Int // per-org incrementing quote number
+  status             String    @default("draft") // draft|sent|viewed|approved|declined|expired|revoked
+  portalToken        String    @unique // opaque token for the public magic-link URL
+  currency           String    @default("USD")
+  subtotalCents      Int       @default(0)
+  discountCents      Int       @default(0)
+  taxCents           Int       @default(0)
+  taxRateBps         Int       @default(0) // basis points (e.g. 875 = 8.75%)
+  totalCents         Int       @default(0)
+  depositCents       Int       @default(0)
+  depositPercent     Int       @default(0)
+  terms              String?
+  customerNotes      String?
+  internalNotes      String?
+  expiresAt          DateTime?
+  sentAt             DateTime?
+  viewedAt           DateTime?
+  approvedAt         DateTime?
+  declinedAt         DateTime?
+  declinedReason     String?
+  // Basic e-signature capture (per plan §7.1 — typed name + IP + timestamp).
+  signatureName      String?
+  signatureIp        String?
+  signatureUserAgent String?
+  acceptedTermsAt    DateTime?
+  createdByUserId    String?   @db.Uuid
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  vehicle      Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  items        QuoteLineItem[]
+  revisions    QuoteRevision[]
+  views        QuoteView[]
+  jobs         Job[]
+  invoices     Invoice[]
+  deposits     Deposit[]
+
+  search Unsupported("tsvector")? @default(dbgenerated())
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([customerId])
+  @@index([vehicleId])
+  @@map("quotes")
+  @@schema("public")
+}
+
+model QuoteLineItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  quoteId        String   @db.Uuid
+  organizationId String   @db.Uuid // denormalized for RLS + query safety
+  serviceId      String?  @db.Uuid
+  materialId     String?  @db.Uuid
+  sortOrder      Int      @default(0)
+  description    String
+  quantity       Decimal  @default(1) @db.Decimal(10, 2)
+  unit           String   @default("each") // "each" | "sqft" | "linear_ft" | "hour"
+  unitPriceCents Int      @default(0)
+  discountCents  Int      @default(0)
+  totalCents     Int      @default(0)
+  taxable        Boolean  @default(true)
+  isUpsell       Boolean  @default(false)
+  upsellAccepted Boolean? // null until the customer chooses
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId, sortOrder])
+  @@index([organizationId])
+  @@map("quote_line_items")
+  @@schema("public")
+}
+
+model QuoteRevision {
+  id              String   @id @default(uuid()) @db.Uuid
+  quoteId         String   @db.Uuid
+  organizationId  String   @db.Uuid
+  version         Int
+  snapshot        Json // full frozen Quote + items at time of revision
+  createdByUserId String?  @db.Uuid
+  reason          String?
+  createdAt       DateTime @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, version])
+  @@index([organizationId])
+  @@map("quote_revisions")
+  @@schema("public")
+}
+
+model QuoteView {
+  id             String   @id @default(uuid()) @db.Uuid
+  quoteId        String   @db.Uuid
+  organizationId String   @db.Uuid
+  viewedAt       DateTime @default(now())
+  ip             String?
+  userAgent      String?
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId, viewedAt])
+  @@index([organizationId])
+  @@map("quote_views")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== PRODUCTION: JOBS, WORK ORDERS, CHECKLISTS, CHECK-IN, QC, PHOTOS =======
+// ============================================================================
+
+model Bay {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  locationId     String   @db.Uuid
+  name           String
+  capabilities   String[] // ["wrap", "ppf", "tint", "ceramic", "detail"]
+  sortOrder      Int      @default(0)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  location       Location        @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  jobs           Job[]
+  scheduleBlocks ScheduleBlock[]
+
+  @@index([organizationId])
+  @@index([locationId])
+  @@map("bays")
+  @@schema("public")
+}
+
+model Job {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @db.Uuid
+  locationId      String?   @db.Uuid
+  number          Int // per-org job number
+  quoteId         String?   @db.Uuid
+  customerId      String    @db.Uuid
+  vehicleId       String?   @db.Uuid
+  bayId           String?   @db.Uuid
+  status          String    @default("pending") // matches JOB_STAGES catalog
+  priority        String    @default("normal") // "low" | "normal" | "high" | "urgent"
+  title           String?
+  summary         String?
+  assignedTechIds String[]  @db.Uuid // OrgMember ids (multi-tech jobs)
+  scheduledStart  DateTime?
+  scheduledEnd    DateTime?
+  actualStart     DateTime?
+  actualEnd       DateTime?
+  deliveredAt     DateTime?
+  estimatedHours  Decimal?  @db.Decimal(6, 2)
+  actualHours     Decimal?  @db.Decimal(6, 2)
+  createdByUserId String?   @db.Uuid
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  location     Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  quote        Quote?       @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  vehicle      Vehicle?     @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  bay          Bay?         @relation(fields: [bayId], references: [id], onDelete: SetNull)
+
+  workOrder             WorkOrder?
+  checkIn               CheckIn?
+  qcCheck               QCCheck?
+  photos                JobPhoto[]
+  scheduleBlocks        ScheduleBlock[]
+  timeEntries           TimeEntry[]
+  inventoryTransactions InventoryTransaction[]
+  warranties            Warranty[]
+  reviewRequests        ReviewRequest[]
+  invoices              Invoice[]
+
+  search Unsupported("tsvector")? @default(dbgenerated())
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status])
+  @@index([organizationId, scheduledStart])
+  @@index([customerId])
+  @@index([vehicleId])
+  @@index([bayId])
+  @@map("jobs")
+  @@schema("public")
+}
+
+model ChecklistTemplate {
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @db.Uuid
+  name               String
+  serviceCategoryKey String? // "wraps" | "ppf" | ...  — used to auto-assign per job
+  itemsJson          Json     @default("[]") // [{ section, label, requiredPhoto, requiredNote }]
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workOrders   WorkOrder[]
+
+  @@index([organizationId])
+  @@map("checklist_templates")
+  @@schema("public")
+}
+
+model WorkOrder {
+  id                  String   @id @default(uuid()) @db.Uuid
+  organizationId      String   @db.Uuid
+  jobId               String   @unique @db.Uuid
+  checklistTemplateId String?  @db.Uuid
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  job      Job                @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  template ChecklistTemplate? @relation(fields: [checklistTemplateId], references: [id], onDelete: SetNull)
+  items    ChecklistItem[]
+
+  @@index([organizationId])
+  @@map("work_orders")
+  @@schema("public")
+}
+
+model ChecklistItem {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @db.Uuid
+  workOrderId       String    @db.Uuid
+  section           String?
+  label             String
+  sortOrder         Int       @default(0)
+  requiredPhoto     Boolean   @default(false)
+  requiredNote      Boolean   @default(false)
+  completedByUserId String?   @db.Uuid
+  completedAt       DateTime?
+  note              String?
+  photoFileIds      String[]  @db.Uuid
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@index([workOrderId, sortOrder])
+  @@index([organizationId])
+  @@map("checklist_items")
+  @@schema("public")
+}
+
+model CheckIn {
+  id                     String   @id @default(uuid()) @db.Uuid
+  organizationId         String   @db.Uuid
+  jobId                  String   @unique @db.Uuid
+  mileage                Int?
+  fuelLevelEighths       Int? // 0-8 (E, 1/8, 2/8 … F)
+  exteriorConditionJson  Json     @default("{}")
+  interiorConditionJson  Json     @default("{}")
+  damagePhotoFileIds     String[] @db.Uuid
+  overallPhotoFileIds    String[] @db.Uuid
+  warningLights          String[]
+  keysReceived           Int      @default(1)
+  belongingsAcknowledged Boolean  @default(false)
+  customerSignatureUrl   String? // storage path to canvas PNG
+  customerSignatureName  String?
+  performedByUserId      String   @db.Uuid
+  performedAt            DateTime @default(now())
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("check_ins")
+  @@schema("public")
+}
+
+model QCCheck {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  jobId          String   @unique @db.Uuid
+  passed         Boolean
+  passedByUserId String   @db.Uuid
+  passedAt       DateTime @default(now())
+  punchListJson  Json     @default("[]") // [{ label, resolved, resolvedAt, note }]
+  notes          String?
+  photoFileIds   String[] @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("qc_checks")
+  @@schema("public")
+}
+
+model JobPhoto {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @db.Uuid
+  jobId            String   @db.Uuid
+  fileId           String   @db.Uuid
+  phase            String // "before" | "during" | "after" | "delivery" | "damage" | "qc"
+  caption          String?
+  sortOrder        Int      @default(0)
+  uploadedByUserId String?  @db.Uuid
+  createdAt        DateTime @default(now())
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, phase, sortOrder])
+  @@index([organizationId])
+  @@map("job_photos")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== SCHEDULING ============================================================
+// ============================================================================
+
+model ScheduleBlock {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @db.Uuid
+  jobId           String?  @db.Uuid // null for non-job blocks (meetings, PTO)
+  bayId           String?  @db.Uuid
+  techUserId      String?  @db.Uuid // OrgMember.userId
+  start           DateTime
+  end             DateTime
+  kind            String   @default("job") // "job" | "consult" | "inspection" | "meeting" | "other" | "block"
+  title           String?
+  color           String?  // Optional user-picked chip color (Tailwind tone key from EVENT_COLORS). Null → tone comes from `kind`.
+  notes           String?
+  createdByUserId String?  @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job?         @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  bay          Bay?         @relation(fields: [bayId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, start, end])
+  @@index([bayId, start, end])
+  @@index([techUserId, start, end])
+  @@map("schedule_blocks")
+  @@schema("public")
+}
+
+model Availability {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  techUserId     String   @db.Uuid
+  weekday        Int // 0-6 (Sun..Sat)
+  startMinutes   Int // minutes since midnight
+  endMinutes     Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, techUserId, weekday])
+  @@map("availabilities")
+  @@schema("public")
+}
+
+model Holiday {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  date           DateTime @db.Date
+  name           String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, date])
+  @@index([organizationId])
+  @@map("holidays")
+  @@schema("public")
+}
+
+model TimeEntry {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  userId         String    @db.Uuid
+  jobId          String?   @db.Uuid
+  clockIn        DateTime
+  clockOut       DateTime?
+  breakMinutes   Int       @default(0)
+  notes          String?
+  source         String    @default("manual") // "manual" | "clock" | "auto"
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job?         @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, userId, clockIn])
+  @@index([jobId])
+  @@map("time_entries")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== COMMS: INBOX + TEMPLATES ==============================================
+// ============================================================================
+
+model MessageThread {
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @db.Uuid
+  customerId         String?  @db.Uuid
+  channel            String   @default("email") // "email" | "sms" | "internal"
+  subject            String?
+  lastMessageAt      DateTime @default(now())
+  lastMessagePreview String?
+  status             String   @default("open") // "open" | "closed"
+  assignedToUserId   String?  @db.Uuid
+  unreadCount        Int      @default(0) // Count of inbound messages the shop hasn't opened yet.
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  messages     Message[]
+
+  @@index([organizationId, lastMessageAt])
+  @@index([organizationId, status])
+  @@index([customerId])
+  @@map("message_threads")
+  @@schema("public")
+}
+
+model Message {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @db.Uuid
+  threadId          String    @db.Uuid
+  direction         String // "in" | "out"
+  channel           String // "email" | "sms" | "internal"
+  fromAddress       String?
+  toAddress         String?
+  subject           String?
+  bodyText          String
+  bodyHtml          String?
+  attachmentFileIds String[]  @db.Uuid
+  providerMessageId String?
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  failedAt          DateTime?
+  errorMessage      String?
+  sentByUserId      String?   @db.Uuid
+  createdAt         DateTime  @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  thread       MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  search Unsupported("tsvector")? @default(dbgenerated())
+
+  @@index([organizationId, createdAt])
+  @@index([threadId, createdAt])
+  @@index([providerMessageId])
+  @@map("messages")
+  @@schema("public")
+}
+
+model MessageTemplate {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  name           String
+  channel        String    @default("email") // "email" | "sms"
+  subject        String?
+  body           String
+  // Variables available at render time — for autocomplete + documentation.
+  variables      String[]  @default([])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("message_templates")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== OPERATIONS: INVENTORY TXN, WARRANTIES, AFTERCARE, REVIEWS =============
+// ============================================================================
+
+model InventoryTransaction {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @db.Uuid
+  materialRollId    String   @db.Uuid
+  jobId             String?  @db.Uuid
+  kind              String   @default("deduct") // "deduct" | "receive" | "adjust" | "waste"
+  lengthYd          Decimal  @db.Decimal(8, 2) // positive; kind indicates direction
+  costCents         Int      @default(0) // captured at time of txn
+  notes             String?
+  performedByUserId String?  @db.Uuid
+  performedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  roll         MaterialRoll @relation(fields: [materialRollId], references: [id], onDelete: Cascade)
+  job          Job?         @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, performedAt])
+  @@index([materialRollId, performedAt])
+  @@index([jobId])
+  @@map("inventory_transactions")
+  @@schema("public")
+}
+
+model Warranty {
+  id                   String    @id @default(uuid()) @db.Uuid
+  organizationId       String    @db.Uuid
+  jobId                String    @db.Uuid
+  customerId           String    @db.Uuid
+  serviceName          String
+  termMonths           Int // shop warranty term
+  manufacturerWarranty String?
+  filmDetails          String? // e.g. "XPEL Ultimate Plus"
+  installer            String?
+  installDate          DateTime
+  expiresAt            DateTime
+  documentFileId       String?   @db.Uuid
+  filedByCustomerAt    DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, expiresAt])
+  @@index([customerId])
+  @@index([jobId])
+  @@map("warranties")
+  @@schema("public")
+}
+
+model AftercareTemplate {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @db.Uuid
+  serviceCategoryId String?  @db.Uuid // optional — falls back to org-default per channel
+  name              String
+  channel           String   @default("email") // "email" | "sms"
+  subject           String?
+  body              String // mustache-safe template
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  serviceCategory ServiceCategory? @relation(fields: [serviceCategoryId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([serviceCategoryId])
+  @@map("aftercare_templates")
+  @@schema("public")
+}
+
+model ReviewRequest {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  jobId          String    @db.Uuid
+  customerId     String    @db.Uuid
+  channel        String    @default("email") // "email" | "sms"
+  provider       String    @default("google") // "google" | "yelp" | "facebook" | "manual"
+  url            String
+  queuedAt       DateTime  @default(now())
+  sentAt         DateTime?
+  clickedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, provider])
+  @@index([organizationId])
+  @@index([customerId])
+  @@map("review_requests")
+  @@schema("public")
+}
+
+// ============================================================================
+// ==== BILLING: INVOICES, PAYMENTS, DEPOSITS, ACCOUNTING SYNC ================
+// ============================================================================
+
+model Invoice {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @db.Uuid
+  customerId      String    @db.Uuid
+  jobId           String?   @db.Uuid
+  quoteId         String?   @db.Uuid
+  number          Int // per-org
+  status          String    @default("draft") // draft|sent|viewed|partial|paid|past_due|void|refunded
+  currency        String    @default("USD")
+  subtotalCents   Int       @default(0)
+  discountCents   Int       @default(0)
+  taxCents        Int       @default(0)
+  totalCents      Int       @default(0)
+  amountPaidCents Int       @default(0)
+  balanceCents    Int       @default(0)
+  dueDate         DateTime?
+  sentAt          DateTime?
+  paidAt          DateTime?
+  voidedAt        DateTime?
+  memo            String?
+  // Accounting sync fields (populated when Invoice pushed to QBO).
+  qboInvoiceId    String? // remote Invoice.Id
+  qboSyncedAt     DateTime?
+  qboSyncStatus   String    @default("not_synced") // not_synced|syncing|synced|error|disconnected
+  qboSyncError    String?
+  qboPayLink      String? // shareable URL for QBO-hosted customer payment
+  createdByUserId String?   @db.Uuid
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  job          Job?              @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  quote        Quote?            @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  items        InvoiceLineItem[]
+  payments     Payment[]
+
+  search Unsupported("tsvector")? @default(dbgenerated())
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([customerId])
+  @@index([qboInvoiceId])
+  @@map("invoices")
+  @@schema("public")
+}
+
+model InvoiceLineItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  invoiceId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  description    String
+  quantity       Decimal  @default(1) @db.Decimal(10, 2)
+  unit           String   @default("each")
+  unitPriceCents Int      @default(0)
+  discountCents  Int      @default(0)
+  totalCents     Int      @default(0)
+  taxable        Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, sortOrder])
+  @@index([organizationId])
+  @@map("invoice_line_items")
+  @@schema("public")
+}
+
+model Payment {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @db.Uuid
+  invoiceId        String?  @db.Uuid // null = unmatched (reconciliation queue)
+  customerId       String?  @db.Uuid
+  amountCents      Int
+  method           String   @default("other") // card|ach|cash|check|qbo|other
+  referenceNumber  String?
+  qboPaymentId     String?
+  receivedAt       DateTime @default(now())
+  recordedByUserId String?  @db.Uuid
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoice      Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, receivedAt])
+  @@index([invoiceId])
+  @@index([qboPaymentId])
+  @@map("payments")
+  @@schema("public")
+}
+
+model Deposit {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  quoteId        String    @db.Uuid
+  customerId     String    @db.Uuid
+  amountCents    Int
+  status         String    @default("requested") // requested|paid|refunded|waived
+  paidAt         DateTime?
+  qboPaymentId   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  quote        Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([quoteId])
+  @@map("deposits")
+  @@schema("public")
+}
+
+model AccountingConnection {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @db.Uuid
+  provider          String // "quickbooks" (only impl for MVP)
+  realmId           String // QBO company ID
+  companyName       String?
+  // AES-GCM encrypted access token + refresh token (versioned prefix).
+  accessTokenEnc    String
+  refreshTokenEnc   String
+  accessExpiresAt   DateTime
+  refreshExpiresAt  DateTime
+  scopes            String[]
+  environment       String    @default("sandbox") // "sandbox" | "production"
+  connectedByUserId String?   @db.Uuid
+  lastRefreshedAt   DateTime?
+  lastRefreshError  String?
+  status            String    @default("connected") // connected|unauthorized|error|disconnected
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider])
+  @@index([organizationId])
+  @@map("accounting_connections")
+  @@schema("public")
+}
+
+model AccountingSyncRecord {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @db.Uuid
+  provider       String    @default("quickbooks")
+  entityType     String // "customer" | "item" | "invoice" | "payment"
+  entityId       String // local id
+  externalId     String? // remote id after successful sync
+  idempotencyKey String // e.g. "qbo:invoice:<id>:<version>"
+  status         String // "pending" | "synced" | "error"
+  errorMessage   String?
+  syncedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([idempotencyKey])
+  @@index([organizationId, entityType, entityId])
+  @@map("accounting_sync_records")
+  @@schema("public")
+}
