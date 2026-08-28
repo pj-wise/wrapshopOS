@@ -4,6 +4,7 @@ import type {
   AccountingCustomer,
   AccountingInvoice,
   AccountingLineItem,
+  AccountingPayment,
   AccountingProvider,
 } from "../types";
 import { getQuickBooksClient } from "@/server/integrations/quickbooks/client";
@@ -124,6 +125,29 @@ export function createQuickBooksAccountingProvider(orgId: string): AccountingPro
         };
       } catch (err) {
         console.error("[qbo.provider] getInvoice failed", err);
+        return null;
+      }
+    },
+
+    async getPayment(externalId): Promise<AccountingPayment | null> {
+      try {
+        const client = await getQuickBooksClient(orgId);
+        const res = await client.getPayment(externalId);
+        const p = res.Payment;
+        const linkedInvoiceExternalIds = (p.Line ?? [])
+          .flatMap((l) => l.LinkedTxn ?? [])
+          .filter((t) => t.TxnType === "Invoice")
+          .map((t) => t.TxnId);
+        return {
+          externalId: p.Id,
+          amountCents: Math.round((p.TotalAmt ?? 0) * 100),
+          txnDate: p.TxnDate,
+          customerExternalId: p.CustomerRef?.value,
+          linkedInvoiceExternalIds,
+          method: p.PaymentMethodRef?.name,
+        };
+      } catch (err) {
+        console.error("[qbo.provider] getPayment failed", err);
         return null;
       }
     },

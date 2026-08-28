@@ -33,6 +33,8 @@ import { QuoteStatusBadge } from "@/modules/quotes/quote-status-badge";
 import { PhotoUploader, PhotoThumb } from "@/modules/shared/photo-uploader";
 import { MaterialsUsedPanel } from "./materials-used-panel";
 import { ScheduleJobCard } from "./schedule-job-card";
+import { CheckInPrepDialog } from "./check-in-prep-dialog";
+import { useFeature } from "@/hooks/use-features";
 
 export function JobDetail({ id }: { id: string }) {
   const j = trpc.jobs.get.useQuery({ id });
@@ -44,11 +46,24 @@ export function JobDetail({ id }: { id: string }) {
   const clockIn = trpc.time.clockIn.useMutation();
   const clockOut = trpc.time.clockOut.useMutation();
 
+  const mobileCheckIn = useFeature("operations.mobile_check_in");
+  const [checkInPrepOpen, setCheckInPrepOpen] = useState(false);
+
   if (j.isLoading) return <Skeleton className="h-64 mx-auto max-w-6xl" />;
   if (j.error) return <p className="mx-auto max-w-6xl text-sm text-red-600">{j.error.message}</p>;
   const job = j.data!;
 
+  const mobileCheckInEnabled =
+    mobileCheckIn.state === "enabled" || mobileCheckIn.state === "beta";
+
   async function setStatus(status: string) {
+    // Intercept "checked_in" — Pro+ orgs go through the prep dialog first
+    // (photo capture on phone OR liability opt-out). Everyone else falls
+    // through to the direct status update.
+    if (status === "checked_in" && mobileCheckInEnabled) {
+      setCheckInPrepOpen(true);
+      return;
+    }
     try {
       await update.mutateAsync({ id, status });
       toast.success(`Moved to ${jobStageLabel(status)}.`);
@@ -380,6 +395,19 @@ export function JobDetail({ id }: { id: string }) {
           />
         )}
       </div>
+
+      <CheckInPrepDialog
+        open={checkInPrepOpen}
+        onOpenChange={setCheckInPrepOpen}
+        jobId={id}
+        jobNumber={job.number}
+        onDone={(transitioned) => {
+          setCheckInPrepOpen(false);
+          if (transitioned) {
+            void utils.jobs.get.invalidate({ id });
+          }
+        }}
+      />
     </div>
   );
 }

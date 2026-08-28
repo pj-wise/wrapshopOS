@@ -3,6 +3,7 @@ import "server-only";
 import type { NextRequest } from "next/server";
 
 import { createSupabaseServerClient } from "@/server/auth/supabase-server";
+import { isPlatformAdminEmail } from "@/server/auth/session";
 import { prisma } from "@/server/db";
 
 export type OrgTier = "starter" | "pro" | "enterprise";
@@ -16,6 +17,7 @@ export type MinimalSession = {
   memberId: string;
   roleKey: string;
   permissions: Set<string>;
+  isPlatformAdmin: boolean;
 };
 
 export type TRPCContext = {
@@ -67,6 +69,7 @@ export async function createTRPCContext(opts: { req: NextRequest }): Promise<TRP
       memberId: member.id,
       roleKey: member.role.key,
       permissions: new Set(member.role.permissions.map((rp) => rp.permissionKey)),
+      isPlatformAdmin: isPlatformAdminEmail(user.email ?? ""),
     },
   };
 }

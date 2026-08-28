@@ -76,6 +76,26 @@ export const paymentsRouter = createTRPCRouter({
                 paidAt: balance === 0 ? new Date() : null,
               },
             });
+
+            // If the invoice traces to a quote with an outstanding deposit
+            // ask, and running paid ≥ deposit amount, mark the Deposit paid.
+            // Keeps the "Deposit received" affordance in sync when the shop
+            // records the first partial payment inline.
+            if (inv.quoteId) {
+              const dep = await tx.deposit.findFirst({
+                where: {
+                  organizationId: ctx.session.organizationId,
+                  quoteId: inv.quoteId,
+                  status: "requested",
+                },
+              });
+              if (dep && paid >= dep.amountCents) {
+                await tx.deposit.update({
+                  where: { id: dep.id },
+                  data: { status: "paid", paidAt: new Date() },
+                });
+              }
+            }
           }
         }
         return p;

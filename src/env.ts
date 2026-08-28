@@ -35,6 +35,13 @@ export const env = createEnv({
 
     // Sentry (optional; only server-side DSN)
     SENTRY_DSN: z.string().url().optional(),
+
+    // Platform admin emails — comma-separated list. Users whose Supabase
+    // Auth email matches (case-insensitive) get cross-org superpowers:
+    // list/switch/edit any org's tier + integrations. Not a role in the
+    // org RBAC catalog — it's a WrapShop-OS-operator-level flag scoped
+    // to whoever runs the platform.
+    PLATFORM_ADMIN_EMAILS: z.string().default(""),
   },
 
   client: {
@@ -67,6 +74,7 @@ export const env = createEnv({
     INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY,
 
     SENTRY_DSN: process.env.SENTRY_DSN,
+    PLATFORM_ADMIN_EMAILS: process.env.PLATFORM_ADMIN_EMAILS,
 
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,

@@ -26,6 +26,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useFeature } from "@/hooks/use-features";
+import { IntegrationSetupCard } from "@/modules/shared/integration-setup-card";
+import type { FeatureKey } from "@/lib/features";
 
 /**
  * Unified inbox — two-pane layout.
@@ -50,6 +53,8 @@ export function InboxView() {
           </p>
         </div>
       </div>
+
+      <ChannelStatusBanner />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[320px_1fr]">
         <ThreadList
@@ -292,6 +297,7 @@ function ThreadPane({ id }: { id: string }) {
       </div>
 
       {/* Composer */}
+      <ComposerGate channel={thread.channel}>
       <div className="border-t p-4 space-y-3">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-[220px_1fr]">
           <div>
@@ -344,7 +350,11 @@ function ThreadPane({ id }: { id: string }) {
         />
         <div className="flex items-center justify-between">
           <div className="text-xs text-muted-foreground">
-            {thread.channel === "email" ? "Sends via Resend" : "SMS provider not wired"}
+            {thread.channel === "email"
+              ? "Sends via the configured email provider"
+              : thread.channel === "sms"
+                ? "Sends via the configured SMS provider"
+                : "Internal note — visible to your team only"}
           </div>
           <Button onClick={onSend} disabled={!body.trim() || reply.isPending}>
             {reply.isPending ? "Sending…" : (
@@ -356,6 +366,74 @@ function ThreadPane({ id }: { id: string }) {
           </Button>
         </div>
       </div>
+      </ComposerGate>
+    </div>
+  );
+}
+
+/**
+ * Persistent top-of-inbox status card. Renders a single setup prompt when
+ * one or both messaging channels aren't wired for this org. Hides itself
+ * entirely once every channel is `enabled`, so a fully-connected shop
+ * doesn't see a stale "connect me" hint.
+ */
+function ChannelStatusBanner() {
+  const email = useFeature("messaging.email");
+  const sms = useFeature("messaging.sms");
+  const emailOn = email.state === "enabled" || email.state === "beta";
+  const smsOn = sms.state === "enabled" || sms.state === "beta";
+  if (emailOn && smsOn) return null;
+
+  const missing: string[] = [];
+  if (!emailOn) missing.push("email");
+  if (!smsOn) missing.push("SMS");
+  const title =
+    missing.length === 2
+      ? "Messaging isn't set up yet"
+      : `${missing[0] === "email" ? "Email" : "SMS"} messaging isn't set up yet`;
+  const description =
+    missing.length === 2
+      ? "Connect an email provider (Resend) and an SMS provider (Twilio or Telnyx) so replies can leave the shop."
+      : missing[0] === "email"
+        ? "Set an email provider (Resend by default) so outbound replies actually leave the shop."
+        : "Connect Twilio or Telnyx to reply to text-message threads.";
+
+  return (
+    <div className="mb-4">
+      <IntegrationSetupCard title={title} description={description} />
+    </div>
+  );
+}
+
+/**
+ * Renders `children` when the current channel has an active provider for
+ * this org; otherwise shows an `IntegrationSetupCard` pointing at Admin
+ * → Integrations. Internal-note threads never gate.
+ */
+function ComposerGate({
+  channel,
+  children,
+}: {
+  channel: string;
+  children: React.ReactNode;
+}) {
+  const key: FeatureKey =
+    channel === "sms" ? "messaging.sms" : "messaging.email";
+  const feature = useFeature(key);
+  if (channel === "internal") return <>{children}</>;
+  const enabled = feature.state === "enabled" || feature.state === "beta";
+  if (enabled) return <>{children}</>;
+  const label = channel === "sms" ? "SMS" : "Email";
+  return (
+    <div className="border-t p-4">
+      <IntegrationSetupCard
+        title={`${label} messaging isn't set up yet`}
+        description={
+          channel === "sms"
+            ? "Connect Twilio or Telnyx in Admin → Integrations to reply to text-message threads."
+            : "Set an email provider (Resend by default) so outbound replies actually leave the shop."
+        }
+      />
     </div>
   );
 }

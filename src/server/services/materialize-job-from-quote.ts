@@ -34,6 +34,12 @@ export async function materializeJobFromQuote(
     where: { id: quoteId, organizationId: orgId },
   });
   if (!quote) throw new Error(`Quote ${quoteId} not found in org ${orgId}`);
+  // Guard: only approved quotes materialize into jobs. Prevents any stray
+  // `quote.approved` event (or bulk backfill) from creating jobs for
+  // drafts / sent-but-not-yet-approved quotes.
+  if (quote.status !== "approved") {
+    return { jobId: "", number: 0, created: false };
+  }
 
   const lineItems = await prisma.quoteLineItem.findMany({
     where: { quoteId: quote.id, isUpsell: false },

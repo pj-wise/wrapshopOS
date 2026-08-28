@@ -63,7 +63,18 @@ function newLine(overrides: Partial<LineItem> = {}): LineItem {
   };
 }
 
-export function QuoteBuilder({ editingQuoteId }: { editingQuoteId?: string } = {}) {
+export function QuoteBuilder({
+  editingQuoteId,
+  onSaved,
+}: {
+  editingQuoteId?: string;
+  /**
+   * Called on successful save. If provided, the builder does NOT navigate
+   * to the saved quote (so a parent modal can close instead). Receives
+   * the saved quote's id + number for the parent to react to.
+   */
+  onSaved?: (result: { id: string; number: number }) => void;
+} = {}) {
   const router = useRouter();
   const search = useSearchParams();
   const initialCustomer = search.get("customerId") ?? "";
@@ -259,7 +270,20 @@ export function QuoteBuilder({ editingQuoteId }: { editingQuoteId?: string } = {
       } else {
         toast.success(`Quote Q-${quote.number} saved as draft.`);
       }
-      router.push(`/quotes/${quote.id}`);
+      // Invalidate caches so the calendar / board / detail views repaint.
+      await Promise.all([
+        utils.quotes.list.invalidate(),
+        utils.quotes.get.invalidate({ id: quote.id }),
+        editingQuoteId
+          ? utils.quotes.get.invalidate({ id: editingQuoteId })
+          : Promise.resolve(),
+        utils.jobs.list.invalidate(),
+      ]);
+      if (onSaved) {
+        onSaved(quote);
+      } else {
+        router.push(`/quotes/${quote.id}`);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed");
     }
@@ -613,32 +637,44 @@ export function QuoteBuilder({ editingQuoteId }: { editingQuoteId?: string } = {
           )}
         </dl>
         <div className="flex items-center gap-2">
-          <Button
-            type="submit"
-            variant="outline"
-            onClick={() => setSaveAndSend(false)}
-            disabled={create.isPending || updateMut.isPending}
-          >
-            {(create.isPending || updateMut.isPending) && !saveAndSend ? (
-              <>
-                <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Saving…
-              </>
-            ) : editingQuoteId && !requestNewApproval ? (
-              "Save changes"
-            ) : (
-              "Save draft"
-            )}
-          </Button>
+          {/*
+            Edit + "Request new approval" collapses to a single primary
+            button — saving a fresh quote as a silent draft without sending
+            would never actually get to the customer for the re-approval
+            the toggle promises. Keeping the pair around only made the
+            "Request new approval" toggle feel duplicative with Save +
+            send. See UI decision notes in the surrounding comment.
+          */}
+          {!(editingQuoteId && requestNewApproval) && (
+            <Button
+              type="submit"
+              variant="outline"
+              onClick={() => setSaveAndSend(false)}
+              disabled={create.isPending || updateMut.isPending}
+            >
+              {(create.isPending || updateMut.isPending) && !saveAndSend ? (
+                <>
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Saving…
+                </>
+              ) : editingQuoteId ? (
+                "Save changes"
+              ) : (
+                "Save draft"
+              )}
+            </Button>
+          )}
           <Button
             type="submit"
             onClick={() => setSaveAndSend(true)}
             disabled={create.isPending || updateMut.isPending || send.isPending}
           >
-            {create.isPending || updateMut.isPending || send.isPending ? (
+            {(create.isPending || updateMut.isPending || send.isPending) && saveAndSend ? (
               <>
                 <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Sending…
               </>
-            ) : editingQuoteId && !requestNewApproval ? (
+            ) : editingQuoteId && requestNewApproval ? (
+              "Save + send for approval"
+            ) : editingQuoteId ? (
               "Save + re-send"
             ) : (
               "Save + send"

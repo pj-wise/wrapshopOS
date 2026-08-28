@@ -102,7 +102,7 @@ export function QuotePortal({ token }: { token: string }) {
           </div>
           <div className="text-sm font-medium">{quote.organization.name}</div>
         </div>
-        <QuoteStatusBadge status={quote.status} />
+        <QuoteStatusBadge status={quote.status} expiresAt={quote.expiresAt} />
       </div>
 
       <div className="rounded-lg border bg-card p-6 shadow-sm sm:p-8">

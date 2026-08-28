@@ -197,7 +197,7 @@ export function CustomerDetail({ id }: { id: string }) {
                           <span className="font-mono text-sm tabular-nums">
                             Q-{String(quote.number).padStart(4, "0")}
                           </span>
-                          <QuoteStatusBadge status={quote.status} />
+                          <QuoteStatusBadge status={quote.status} expiresAt={quote.expiresAt} />
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {new Date(quote.createdAt).toLocaleDateString()}

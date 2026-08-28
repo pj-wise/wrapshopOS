@@ -66,6 +66,24 @@ export const orgProcedure = authedProcedure
   .use(auditMiddleware);
 
 /**
+ * Procedure for platform-operator ("me") calls that transcend org scope
+ * — listing every org, editing an arbitrary org's tier, etc. Gated on
+ * `session.isPlatformAdmin` which is env-driven (`PLATFORM_ADMIN_EMAILS`).
+ * NOT the same as any org-level `admin:*` permission.
+ */
+export const platformAdminProcedure = authedProcedure
+  .use(({ ctx, next }) => {
+    if (!ctx.session.isPlatformAdmin) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Platform admin only.",
+      });
+    }
+    return next();
+  })
+  .use(auditMiddleware);
+
+/**
  * Helper: gate a procedure on one or more permissions. Composable off
  * orgProcedure — e.g. `orgProcedure.use(requirePermission("quotes:approve"))`.
  */

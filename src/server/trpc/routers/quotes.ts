@@ -16,8 +16,56 @@ import {
 } from "../init";
 import { computeQuoteTotals, priceLine, type ServiceForPricing } from "@/server/services/pricing";
 import { recordTimelineEvent } from "@/server/audit/timeline";
-import { inngest } from "@/server/jobs/client";
 import { materializeJobFromQuote } from "@/server/services/materialize-job-from-quote";
+import { materializeInvoiceFromJob } from "@/server/services/materialize-invoice-from-job";
+import { getEmailProvider } from "@/server/providers/registry";
+import { prisma } from "@/server/db";
+import { env } from "@/env";
+import { formatMoney } from "@/lib/money";
+
+/**
+ * Minimal transactional-email HTML for the "quote sent" moment. We render
+ * inline for now instead of going through react-pdf / a template system —
+ * one shot, plain-text-friendly, no dep. If the shop wants brand headers
+ * or PDFs they land later via the templates router + Inngest `pdf.render`
+ * job.
+ */
+function renderQuoteEmailHtml(params: {
+  orgName: string;
+  customerName: string;
+  quoteNumber: string;
+  totalCents: number;
+  currency: string;
+  portalUrl: string;
+}): string {
+  const { orgName, customerName, quoteNumber, totalCents, currency, portalUrl } = params;
+  const safeOrg = escapeHtml(orgName);
+  const safeCustomer = escapeHtml(customerName);
+  const safeQuote = escapeHtml(quoteNumber);
+  const total = escapeHtml(formatMoney(totalCents, currency));
+  const safeUrl = escapeHtml(portalUrl);
+  return `<!doctype html>
+<html><body style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; background:#f8fafc; margin:0; padding:32px;">
+  <div style="max-width:560px; margin:0 auto; background:#fff; border-radius:12px; padding:32px; border:1px solid #e5e7eb;">
+    <h1 style="margin:0 0 12px 0; font-size:20px;">Your quote from ${safeOrg}</h1>
+    <p style="margin:0 0 12px 0; color:#334155;">Hi ${safeCustomer},</p>
+    <p style="margin:0 0 24px 0; color:#334155;">Your quote <strong>${safeQuote}</strong> is ready. Total: <strong>${total}</strong>.</p>
+    <p style="margin:0 0 24px 0;">
+      <a href="${safeUrl}" style="display:inline-block; background:#0f172a; color:#fff; text-decoration:none; padding:12px 20px; border-radius:8px; font-weight:600;">View quote</a>
+    </p>
+    <p style="margin:0 0 0 0; color:#64748b; font-size:13px;">Or open this link: <a href="${safeUrl}" style="color:#0f172a;">${safeUrl}</a></p>
+  </div>
+</body></html>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 /**
  * Generate an opaque URL-safe portal token for magic-link access.
@@ -341,6 +389,44 @@ export const quotesRouter = createTRPCRouter({
           message: "Customer has no email — add one before sending the quote.",
         });
       }
+
+      // Resolve the email provider up-front so failures surface *before*
+      // we flip the quote to "sent" (better UX than "sent but the email
+      // silently vanished"). The provider is tenant-configured via the
+      // integrations registry — falls back to the platform default when
+      // the shop hasn't pasted their own Resend key.
+      //
+      // NB: use bare `prisma`, not `ctx.db` — the tenant-scoped extension
+      // auto-injects `organizationId` into every where clause, which the
+      // Organization model itself has no column for (it IS the org).
+      const org = await prisma.organization.findUniqueOrThrow({
+        where: { id: ctx.session.organizationId },
+        select: { name: true },
+      });
+      const emailProvider = await getEmailProvider(ctx.session.organizationId);
+      const portalUrl = `${env.NEXT_PUBLIC_APP_URL}/q/${quote.portalToken}`;
+      const quoteNumber = `Q-${String(quote.number).padStart(4, "0")}`;
+      const html = renderQuoteEmailHtml({
+        orgName: org.name,
+        customerName: quote.customer.name,
+        quoteNumber,
+        totalCents: quote.totalCents,
+        currency: quote.currency,
+        portalUrl,
+      });
+      const sendResult = await emailProvider.send({
+        to: quote.customer.email,
+        subject: `${quoteNumber} from ${org.name}`,
+        html,
+        text: `View your quote from ${org.name}: ${portalUrl}`,
+      });
+      if (!sendResult.ok) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Email delivery failed: ${sendResult.error ?? "unknown error"}. Save your changes and retry, or check Admin → Integrations.`,
+        });
+      }
+
       const updated = await ctx.db.quote.update({
         where: { id: quote.id },
         data: {
@@ -349,22 +435,12 @@ export const quotesRouter = createTRPCRouter({
         },
       });
 
-      // Fire email + PDF renders as background jobs. Idempotent by quote id.
-      await inngest.send({
-        name: "quote.approved",
-        data: {
-          orgId: ctx.session.organizationId,
-          quoteId: quote.id,
-          customerId: quote.customerId,
-        },
-      });
-
       await recordTimelineEvent(ctx.session.organizationId, {
         entityType: "quote" as never,
         entityId: quote.id,
         kind: "quote.sent",
         actorUserId: ctx.session.userId,
-        data: { to: quote.customer.email },
+        data: { to: quote.customer.email, provider: emailProvider.name },
       });
       await recordTimelineEvent(ctx.session.organizationId, {
         entityType: "customer",
@@ -446,6 +522,48 @@ export const quotesRouter = createTRPCRouter({
     ),
 
   /**
+   * Bulk archive: set status="revoked" on every provided id. Skips rows
+   * that are already approved (those materialized into Jobs — archiving
+   * would silently break the pipeline). Returns the count actually changed.
+   */
+  bulkArchive: orgProcedure
+    .use(requirePermission("quotes:write"))
+    .meta({ audit: { entity: "quote", action: "bulk_archive" } })
+    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await ctx.db.quote.updateMany({
+        where: {
+          id: { in: input.ids },
+          deletedAt: null,
+          status: { notIn: ["approved"] },
+        },
+        data: { status: "revoked" },
+      });
+      return { archived: res.count };
+    }),
+
+  /**
+   * Bulk soft-delete: sets deletedAt on every provided id. Approved
+   * quotes are refused as a safety rail — the shop should revoke or edit
+   * them first, since their Jobs and downstream invoices point at them.
+   */
+  bulkDelete: orgProcedure
+    .use(requirePermission("quotes:write"))
+    .meta({ audit: { entity: "quote", action: "bulk_delete" } })
+    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(200) }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await ctx.db.quote.updateMany({
+        where: {
+          id: { in: input.ids },
+          deletedAt: null,
+          status: { notIn: ["approved"] },
+        },
+        data: { deletedAt: new Date() },
+      });
+      return { deleted: res.count };
+    }),
+
+  /**
    * One-shot backfill: for every approved quote in the org that never
    * materialized into a Job (because the Inngest event was dropped in
    * dev, or historical rows predate the materialization flow), create
@@ -478,11 +596,19 @@ export const quotesRouter = createTRPCRouter({
       const orphans = quotes.filter((q) => !jobbedQuoteIds.has(q.id));
 
       let created = 0;
+      let invoicesCreated = 0;
       const failures: Array<{ quoteId: string; message: string }> = [];
       for (const q of orphans) {
         try {
           const res = await materializeJobFromQuote(ctx.session.organizationId, q.id);
           if (res.created) created++;
+          if (res.jobId) {
+            const inv = await materializeInvoiceFromJob(
+              ctx.session.organizationId,
+              res.jobId,
+            );
+            if (inv.created) invoicesCreated++;
+          }
         } catch (err) {
           failures.push({
             quoteId: q.id,
@@ -510,6 +636,7 @@ export const quotesRouter = createTRPCRouter({
         scanned: quotes.length,
         candidates: orphans.length,
         created,
+        invoicesCreated,
         repaired: repair.count,
         failures,
       };

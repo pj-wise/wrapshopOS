@@ -20,6 +20,8 @@ import {
 } from "@/lib/event-catalog";
 import type { RouterOutputs } from "@/lib/trpc/types";
 import { NewEventDialog } from "./new-event-dialog";
+import { EditEventDialog } from "./edit-event-dialog";
+import { EditQuoteDialog } from "@/modules/quotes/edit-quote-dialog";
 
 type WorkflowStageRow = RouterOutputs["workflow"]["getStages"]["stages"][number];
 type ScheduleBlockRow = RouterOutputs["schedule"]["list"][number];
@@ -107,6 +109,7 @@ export function JobCalendar() {
     rangeEnd: range.end,
   });
   const update = trpc.jobs.update.useMutation();
+  const eventUpdate = trpc.schedule.update.useMutation();
   const utils = trpc.useUtils();
 
   const workflow = workflowQ.data?.stages ?? [];
@@ -121,17 +124,33 @@ export function JobCalendar() {
       return start >= range.start && start < range.end;
     });
 
-  // Non-job schedule events (consult/inspection/meeting/other). Job-tied
-  // blocks are already drawn from the jobs list — filter them here so we
-  // don't render each scheduled job twice.
-  const events = (eventsQ.data ?? []).filter((e) => e.jobId == null && e.kind !== "job");
-
   const [eventDialogOpen, setEventDialogOpen] = useState(false);
   const [eventDefaultStart, setEventDefaultStart] = useState<Date | undefined>(undefined);
   const openEventDialog = (defaultStart?: Date) => {
     setEventDefaultStart(defaultStart);
     setEventDialogOpen(true);
   };
+  const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
+  const [editEvent, setEditEvent] = useState<ScheduleBlockRow | null>(null);
+  const [eventOptimistic, setEventOptimistic] = useState<
+    Record<string, { start: Date; end: Date }>
+  >({});
+
+  // Non-job schedule events (consult/inspection/meeting/other). Job-tied
+  // blocks are already drawn from the jobs list — filter them here so we
+  // don't render each scheduled job twice. Overlaid with any in-flight
+  // optimistic drag update so chips slide immediately.
+  const events = (eventsQ.data ?? [])
+    .filter((e) => e.jobId == null && e.kind !== "job")
+    .map((e) => {
+      const o = eventOptimistic[e.id];
+      if (!o) return e;
+      return {
+        ...e,
+        start: o.start as unknown as typeof e.start,
+        end: o.end as unknown as typeof e.end,
+      };
+    });
 
   async function move(jobId: string, dropTarget: Date, hourOverride?: number) {
     const original = q.data?.items.find((j) => j.id === jobId);
@@ -165,6 +184,41 @@ export function JobCalendar() {
       setOptimistic((p) => {
         const next = { ...p };
         delete next[jobId];
+        return next;
+      });
+    }
+  }
+
+  async function moveEvent(eventId: string, dropTarget: Date, hourOverride?: number) {
+    const original = eventsQ.data?.find((e) => e.id === eventId);
+    if (!original) return;
+
+    const origStart = new Date(original.start);
+    const origEnd = new Date(original.end);
+    const durationMs = origEnd.getTime() - origStart.getTime();
+
+    const nextStart = new Date(dropTarget);
+    if (hourOverride != null) {
+      nextStart.setHours(hourOverride, 0, 0, 0);
+    } else {
+      nextStart.setHours(origStart.getHours(), origStart.getMinutes(), 0, 0);
+    }
+    const nextEnd = new Date(nextStart.getTime() + durationMs);
+
+    setEventOptimistic((p) => ({ ...p, [eventId]: { start: nextStart, end: nextEnd } }));
+    try {
+      await eventUpdate.mutateAsync({
+        id: eventId,
+        start: nextStart,
+        end: nextEnd,
+      });
+      await utils.schedule.list.invalidate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Move failed");
+    } finally {
+      setEventOptimistic((p) => {
+        const next = { ...p };
+        delete next[eventId];
         return next;
       });
     }
@@ -234,8 +288,11 @@ export function JobCalendar() {
           dragging={dragging}
           setDragging={setDragging}
           onMove={move}
+          onMoveEvent={moveEvent}
           stageLabelFor={stageLabelFor}
           onCellClick={openEventDialog}
+          onEditQuote={setEditQuoteId}
+          onEditEvent={setEditEvent}
         />
       ) : mode === "week" ? (
         <WeekView
@@ -245,8 +302,11 @@ export function JobCalendar() {
           dragging={dragging}
           setDragging={setDragging}
           onMove={move}
+          onMoveEvent={moveEvent}
           stageLabelFor={stageLabelFor}
           onCellClick={openEventDialog}
+          onEditQuote={setEditQuoteId}
+          onEditEvent={setEditEvent}
         />
       ) : (
         <MonthView
@@ -257,8 +317,11 @@ export function JobCalendar() {
           dragging={dragging}
           setDragging={setDragging}
           onMove={move}
+          onMoveEvent={moveEvent}
           stageLabelFor={stageLabelFor}
           onCellClick={openEventDialog}
+          onEditQuote={setEditQuoteId}
+          onEditEvent={setEditEvent}
         />
       )}
 
@@ -268,6 +331,18 @@ export function JobCalendar() {
         open={eventDialogOpen}
         onOpenChange={setEventDialogOpen}
         defaultStart={eventDefaultStart}
+      />
+
+      <EditQuoteDialog
+        open={!!editQuoteId}
+        onOpenChange={(v) => !v && setEditQuoteId(null)}
+        quoteId={editQuoteId}
+      />
+
+      <EditEventDialog
+        open={!!editEvent}
+        onOpenChange={(v) => !v && setEditEvent(null)}
+        event={editEvent}
       />
     </div>
   );
@@ -281,12 +356,14 @@ function JobChip({
   onDragEnd,
   compact,
   stageLabelFor,
+  onEdit,
 }: {
   job: JobRow;
   onDragStart: () => void;
   onDragEnd: () => void;
   compact?: boolean;
   stageLabelFor: (key: string) => string;
+  onEdit: (quoteId: string) => void;
 }) {
   const tone = JOB_STAGE_TONES[job.status as JobStageKey] ?? JOB_STAGE_TONES.approved;
   const vehicle = job.vehicle
@@ -297,38 +374,92 @@ function JobChip({
   const timeLabel = start
     ? start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
     : "";
+  const hasQuote = Boolean(job.quote);
+  const commonClass = cn(
+    "group flex cursor-grab items-center gap-1.5 truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium text-left w-full active:cursor-grabbing",
+    tone.chip,
+  );
+  const label = (
+    <>
+      <GripVertical className="h-2.5 w-2.5 opacity-40 group-hover:opacity-100" />
+      <span className="truncate">
+        {!compact && timeLabel ? `${timeLabel} · ` : ""}
+        {title}
+      </span>
+    </>
+  );
+
+  if (!hasQuote) {
+    return (
+      <Link
+        href={`/jobs/${job.id}`}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", job.id);
+          onDragStart();
+        }}
+        onDragEnd={onDragEnd}
+        className={commonClass}
+        title={`${title} · ${stageLabelFor(job.status)}${timeLabel ? ` · ${timeLabel}` : ""}`}
+      >
+        {label}
+      </Link>
+    );
+  }
 
   return (
-    <Link
-      href={`/jobs/${job.id}`}
+    <button
+      type="button"
       draggable
+      onClick={(e) => {
+        e.stopPropagation();
+        onEdit(job.quote!.id);
+      }}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", job.id);
         onDragStart();
       }}
       onDragEnd={onDragEnd}
-      className={cn(
-        "group flex cursor-grab items-center gap-1.5 truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium active:cursor-grabbing",
-        tone.chip,
-      )}
+      className={commonClass}
       title={`${title} · ${stageLabelFor(job.status)}${timeLabel ? ` · ${timeLabel}` : ""}`}
     >
-      <GripVertical className="h-2.5 w-2.5 opacity-40 group-hover:opacity-100" />
-      <span className="truncate">
-        {!compact && timeLabel ? `${timeLabel} · ` : ""}
-        {title}
-      </span>
-    </Link>
+      {label}
+    </button>
   );
+}
+
+/**
+ * Prefix events with `event:` when set on the drag dataTransfer so the drop
+ * handler can distinguish an event drag from a job drag (jobs use the bare
+ * id). Keeps the two entity types on independent update paths.
+ */
+const EVENT_DRAG_PREFIX = "event:";
+
+/** Parse a calendar drop payload into { kind, id }. Returns null when empty. */
+function parseDropPayload(
+  raw: string | null,
+): { kind: "job" | "event"; id: string } | null {
+  if (!raw) return null;
+  if (raw.startsWith(EVENT_DRAG_PREFIX)) {
+    return { kind: "event", id: raw.slice(EVENT_DRAG_PREFIX.length) };
+  }
+  return { kind: "job", id: raw };
 }
 
 function EventChip({
   event,
   compact,
+  onDragStart,
+  onDragEnd,
+  onEdit,
 }: {
   event: ScheduleBlockRow;
   compact?: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onEdit: (event: ScheduleBlockRow) => void;
 }) {
   const tone = resolveEventTone(event.kind, event.color);
   const title = event.title?.trim() || eventKindLabel(event.kind);
@@ -338,15 +469,27 @@ function EventChip({
     minute: "2-digit",
   });
   return (
-    <div
+    <button
+      type="button"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", `${EVENT_DRAG_PREFIX}${event.id}`);
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      onClick={(e) => {
+        e.stopPropagation();
+        onEdit(event);
+      }}
       className={cn(
-        "flex items-center gap-1.5 truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+        "group flex w-full cursor-grab items-center gap-1.5 truncate rounded-md border px-1.5 py-0.5 text-left text-[11px] font-medium active:cursor-grabbing",
         tone.chip,
       )}
       style={tone.style}
       title={`${title} · ${eventKindLabel(event.kind)} · ${timeLabel}`}
-      onClick={(e) => e.stopPropagation()}
     >
+      <GripVertical className="h-2.5 w-2.5 shrink-0 opacity-40 group-hover:opacity-100" />
       <span
         className={cn("h-2 w-2 shrink-0 rounded-full", tone.dot)}
         style={tone.dotStyle}
@@ -355,7 +498,7 @@ function EventChip({
         {!compact ? `${timeLabel} · ` : ""}
         {title}
       </span>
-    </div>
+    </button>
   );
 }
 
@@ -368,8 +511,11 @@ function DayView({
   dragging,
   setDragging,
   onMove,
+  onMoveEvent,
   stageLabelFor,
   onCellClick,
+  onEditQuote,
+  onEditEvent,
 }: {
   day: Date;
   jobs: JobRow[];
@@ -377,8 +523,11 @@ function DayView({
   dragging: string | null;
   setDragging: (id: string | null) => void;
   onMove: (id: string, target: Date, hourOverride?: number) => void;
+  onMoveEvent: (id: string, target: Date, hourOverride?: number) => void;
   stageLabelFor: (key: string) => string;
   onCellClick: (start: Date) => void;
+  onEditQuote: (quoteId: string) => void;
+  onEditEvent: (event: ScheduleBlockRow) => void;
 }) {
   const hours = Array.from({ length: HOURS_VISIBLE }, (_, i) => HOUR_START + i);
   const start = startOfDay(day).getTime();
@@ -410,9 +559,12 @@ function DayView({
                 }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
-                  const id = e.dataTransfer.getData("text/plain") || dragging;
-                  if (!id) return;
-                  onMove(id, cellDate, h);
+                  const payload = parseDropPayload(
+                    e.dataTransfer.getData("text/plain") || dragging,
+                  );
+                  if (!payload) return;
+                  if (payload.kind === "event") onMoveEvent(payload.id, cellDate, h);
+                  else onMove(payload.id, cellDate, h);
                   setDragging(null);
                 }}
               >
@@ -424,10 +576,17 @@ function DayView({
                       onDragStart={() => setDragging(j.id)}
                       onDragEnd={() => setDragging(null)}
                       stageLabelFor={stageLabelFor}
+                      onEdit={onEditQuote}
                     />
                   ))}
                   {cellEvents.map((ev) => (
-                    <EventChip key={ev.id} event={ev} />
+                    <EventChip
+                      key={ev.id}
+                      event={ev}
+                      onDragStart={() => setDragging(ev.id)}
+                      onDragEnd={() => setDragging(null)}
+                      onEdit={onEditEvent}
+                    />
                   ))}
                 </div>
                 {cellJobs.length === 0 && cellEvents.length === 0 && (
@@ -446,6 +605,105 @@ function DayView({
 
 // ---- Week view -------------------------------------------------------------
 
+/**
+ * Multi-day chip spanning:
+ *   - Each job/event's date range is projected onto a 7-column week grid.
+ *   - Chips are placed with `grid-column: startCol / endCol+1` so a 3-day
+ *     job renders as one wide pill instead of one chip per day.
+ *   - Greedy lane assignment stacks overlapping chips into separate rows.
+ *   - Day backgrounds sit on `grid-row: 2 / -1` so drops still fire on the
+ *     empty portions of each column while chips overlay them for clicks.
+ */
+type SpanEntry =
+  | { kind: "job"; id: string; startCol: number; endCol: number; job: JobRow; startMs: number; spanDays: number }
+  | { kind: "event"; id: string; startCol: number; endCol: number; event: ScheduleBlockRow; startMs: number; spanDays: number };
+
+function projectToCols(
+  startDate: Date,
+  endDate: Date,
+  rangeStartMs: number,
+  totalDays: number,
+): { startCol: number; endCol: number } | null {
+  const rangeEndMs = rangeStartMs + totalDays * DAY_MS;
+  if (endDate.getTime() < rangeStartMs || startDate.getTime() >= rangeEndMs) return null;
+  const startCol = Math.floor(
+    (startOfDay(new Date(Math.max(startDate.getTime(), rangeStartMs))).getTime() -
+      rangeStartMs) /
+      DAY_MS,
+  );
+  // End is exclusive at midnight — subtract 1ms so an all-day event ending at
+  // 00:00 next day doesn't spill into the following column.
+  const endCol = Math.floor(
+    (startOfDay(new Date(Math.min(endDate.getTime(), rangeEndMs) - 1)).getTime() -
+      rangeStartMs) /
+      DAY_MS,
+  );
+  return {
+    startCol: Math.max(0, Math.min(totalDays - 1, startCol)),
+    endCol: Math.max(0, Math.min(totalDays - 1, Math.max(startCol, endCol))),
+  };
+}
+
+function buildSpans(
+  jobs: JobRow[],
+  events: ScheduleBlockRow[],
+  rangeStart: Date,
+  totalDays: number,
+): SpanEntry[] {
+  const rangeStartMs = rangeStart.getTime();
+  const spans: SpanEntry[] = [];
+  for (const j of jobs) {
+    if (!j.scheduledStart) continue;
+    const start = new Date(j.scheduledStart);
+    const end = j.scheduledEnd ? new Date(j.scheduledEnd) : new Date(start.getTime() + 60 * 60_000);
+    const cols = projectToCols(start, end, rangeStartMs, totalDays);
+    if (!cols) continue;
+    spans.push({
+      kind: "job",
+      id: j.id,
+      startCol: cols.startCol,
+      endCol: cols.endCol,
+      job: j,
+      startMs: start.getTime(),
+      spanDays: cols.endCol - cols.startCol + 1,
+    });
+  }
+  for (const ev of events) {
+    const start = new Date(ev.start);
+    const end = new Date(ev.end);
+    const cols = projectToCols(start, end, rangeStartMs, totalDays);
+    if (!cols) continue;
+    spans.push({
+      kind: "event",
+      id: ev.id,
+      startCol: cols.startCol,
+      endCol: cols.endCol,
+      event: ev,
+      startMs: start.getTime(),
+      spanDays: cols.endCol - cols.startCol + 1,
+    });
+  }
+  // Sort so longer-span chips get first pick of low lanes — makes the visual
+  // layout more compact when short chips can fill leftover gaps.
+  spans.sort((a, b) => a.startCol - b.startCol || b.spanDays - a.spanDays || a.startMs - b.startMs);
+  return spans;
+}
+
+function assignLanes(spans: SpanEntry[]): { lane: number[]; totalLanes: number } {
+  const laneEnds: number[] = [];
+  const lane: number[] = spans.map((s) => {
+    for (let i = 0; i < laneEnds.length; i++) {
+      if (laneEnds[i] < s.startCol) {
+        laneEnds[i] = s.endCol;
+        return i;
+      }
+    }
+    laneEnds.push(s.endCol);
+    return laneEnds.length - 1;
+  });
+  return { lane, totalLanes: Math.max(1, laneEnds.length) };
+}
+
 function WeekView({
   rangeStart,
   jobs,
@@ -453,8 +711,11 @@ function WeekView({
   dragging,
   setDragging,
   onMove,
+  onMoveEvent,
   stageLabelFor,
   onCellClick,
+  onEditQuote,
+  onEditEvent,
 }: {
   rangeStart: Date;
   jobs: JobRow[];
@@ -462,67 +723,96 @@ function WeekView({
   dragging: string | null;
   setDragging: (id: string | null) => void;
   onMove: (id: string, target: Date) => void;
+  onMoveEvent: (id: string, target: Date) => void;
   stageLabelFor: (key: string) => string;
   onCellClick: (start: Date) => void;
+  onEditQuote: (quoteId: string) => void;
+  onEditEvent: (event: ScheduleBlockRow) => void;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(rangeStart, i));
   const today = new Date();
+  const spans = buildSpans(jobs, events, rangeStart, 7);
+  const { lane, totalLanes } = assignLanes(spans);
+
   return (
-    <div className="grid grid-cols-7 divide-x">
-      {days.map((d) => {
-        const cellJobs = jobs
-          .filter((j) => sameDay(new Date(j.scheduledStart!), d))
-          .sort(
-            (a, b) =>
-              new Date(a.scheduledStart!).getTime() - new Date(b.scheduledStart!).getTime(),
-          );
-        const cellEvents = events
-          .filter((ev) => sameDay(new Date(ev.start), d))
-          .sort(
-            (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
-          );
-        return (
-          <div
-            key={d.toISOString()}
-            className={cn(
-              "group relative min-h-[220px] cursor-pointer p-1 hover:bg-accent/20",
-              sameDay(d, today) && "bg-accent/30",
-            )}
-            onClick={(e) => {
-              if (e.target === e.currentTarget) onCellClick(d);
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              const id = e.dataTransfer.getData("text/plain") || dragging;
-              if (!id) return;
-              onMove(id, d);
-              setDragging(null);
-            }}
-          >
-            <div className="mb-1 flex items-center justify-between px-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-              <span>{d.toLocaleDateString(undefined, { weekday: "short" })}</span>
-              <span className="tabular-nums">{d.getDate()}</span>
-            </div>
-            <div className="flex flex-col gap-1">
-              {cellJobs.map((j) => (
-                <JobChip
-                  key={j.id}
-                  job={j}
-                  onDragStart={() => setDragging(j.id)}
-                  onDragEnd={() => setDragging(null)}
-                  stageLabelFor={stageLabelFor}
-                />
-              ))}
-              {cellEvents.map((ev) => (
-                <EventChip key={ev.id} event={ev} />
-              ))}
-              {cellJobs.length === 0 && cellEvents.length === 0 && (
-                <div className="h-4" /> // dropzone padding
-              )}
-            </div>
-          </div>
-        );
-      })}
+    <div
+      className="grid gap-y-1"
+      style={{
+        gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+        gridTemplateRows: `auto repeat(${totalLanes}, minmax(0, auto)) 1fr`,
+      }}
+    >
+      {/* Row 1: day headers */}
+      {days.map((d, i) => (
+        <div
+          key={`h-${d.toISOString()}`}
+          style={{ gridColumn: i + 1, gridRow: 1 }}
+          className={cn(
+            "flex items-center justify-between border-b border-l px-2 py-1 text-[10px] uppercase tracking-widest text-muted-foreground",
+            i === 0 && "border-l-0",
+            sameDay(d, today) && "bg-accent/30",
+          )}
+        >
+          <span>{d.toLocaleDateString(undefined, { weekday: "short" })}</span>
+          <span className="tabular-nums">{d.getDate()}</span>
+        </div>
+      ))}
+
+      {/* Backgrounds — one per column, spanning every chip row + trailing filler */}
+      {days.map((d, i) => (
+        <div
+          key={`bg-${d.toISOString()}`}
+          style={{ gridColumn: i + 1, gridRow: `2 / -1` }}
+          className={cn(
+            "min-h-[220px] cursor-pointer border-l hover:bg-accent/10",
+            i === 0 && "border-l-0",
+            sameDay(d, today) && "bg-accent/20",
+          )}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) onCellClick(d);
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            const payload = parseDropPayload(
+              e.dataTransfer.getData("text/plain") || dragging,
+            );
+            if (!payload) return;
+            if (payload.kind === "event") onMoveEvent(payload.id, d);
+            else onMove(payload.id, d);
+            setDragging(null);
+          }}
+        />
+      ))}
+
+      {/* Spanning chips */}
+      {spans.map((s, i) => (
+        <div
+          key={s.id}
+          style={{
+            gridColumnStart: s.startCol + 1,
+            gridColumnEnd: s.endCol + 2,
+            gridRow: lane[i] + 2,
+          }}
+          className="min-w-0 px-1"
+        >
+          {s.kind === "job" ? (
+            <JobChip
+              job={s.job}
+              onDragStart={() => setDragging(s.job.id)}
+              onDragEnd={() => setDragging(null)}
+              stageLabelFor={stageLabelFor}
+              onEdit={onEditQuote}
+            />
+          ) : (
+            <EventChip
+              event={s.event}
+              onDragStart={() => setDragging(s.event.id)}
+              onDragEnd={() => setDragging(null)}
+              onEdit={onEditEvent}
+            />
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -537,8 +827,11 @@ function MonthView({
   dragging,
   setDragging,
   onMove,
+  onMoveEvent,
   stageLabelFor,
   onCellClick,
+  onEditQuote,
+  onEditEvent,
 }: {
   rangeStart: Date;
   anchor: Date;
@@ -547,11 +840,15 @@ function MonthView({
   dragging: string | null;
   setDragging: (id: string | null) => void;
   onMove: (id: string, target: Date) => void;
+  onMoveEvent: (id: string, target: Date) => void;
   stageLabelFor: (key: string) => string;
   onCellClick: (start: Date) => void;
+  onEditQuote: (quoteId: string) => void;
+  onEditEvent: (event: ScheduleBlockRow) => void;
 }) {
-  const days = Array.from({ length: 42 }, (_, i) => addDays(rangeStart, i));
-  const today = new Date();
+  // 6 week rows × 7 days. Each row is its own mini-grid that spans chips
+  // horizontally the same way WeekView does.
+  const weekStarts = Array.from({ length: 6 }, (_, i) => addDays(rangeStart, i * 7));
 
   return (
     <div>
@@ -562,77 +859,173 @@ function MonthView({
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 divide-x divide-y">
-        {days.map((d) => {
-          const cellJobs = jobs
-            .filter((j) => sameDay(new Date(j.scheduledStart!), d))
-            .sort(
-              (a, b) =>
-                new Date(a.scheduledStart!).getTime() -
-                new Date(b.scheduledStart!).getTime(),
-            );
-          const cellEvents = events
-            .filter((ev) => sameDay(new Date(ev.start), d))
-            .sort(
-              (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
-            );
-          const outsideMonth = !isSameMonth(d, anchor);
-          const totalCount = cellJobs.length + cellEvents.length;
-          const overflow = Math.max(0, totalCount - 3);
-          const jobsToShow = cellJobs.slice(0, 3);
-          const remainingSlots = Math.max(0, 3 - jobsToShow.length);
-          const eventsToShow = cellEvents.slice(0, remainingSlots);
-          return (
-            <div
-              key={d.toISOString()}
-              className={cn(
-                "group relative min-h-[96px] cursor-pointer p-1 hover:bg-accent/20",
-                outsideMonth && "bg-muted/20",
-                sameDay(d, today) && "bg-accent/40",
-              )}
-              onClick={(e) => {
-                if (e.target === e.currentTarget) onCellClick(d);
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                const id = e.dataTransfer.getData("text/plain") || dragging;
-                if (!id) return;
-                onMove(id, d);
-                setDragging(null);
-              }}
-            >
-              <div
-                className={cn(
-                  "mb-0.5 px-1 text-right text-[11px] tabular-nums",
-                  outsideMonth ? "text-muted-foreground/50" : "text-muted-foreground",
-                )}
-              >
-                {d.getDate()}
-              </div>
-              <div className="flex flex-col gap-0.5">
-                {jobsToShow.map((j) => (
-                  <JobChip
-                    key={j.id}
-                    job={j}
-                    compact
-                    onDragStart={() => setDragging(j.id)}
-                    onDragEnd={() => setDragging(null)}
-                    stageLabelFor={stageLabelFor}
-                  />
-                ))}
-                {eventsToShow.map((ev) => (
-                  <EventChip key={ev.id} event={ev} compact />
-                ))}
-                {overflow > 0 && (
-                  <div className="px-1 text-[10px] text-muted-foreground">
-                    +{overflow} more
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {weekStarts.map((weekStart) => (
+        <MonthWeekRow
+          key={weekStart.toISOString()}
+          weekStart={weekStart}
+          anchor={anchor}
+          jobs={jobs}
+          events={events}
+          dragging={dragging}
+          setDragging={setDragging}
+          onMove={onMove}
+          onMoveEvent={onMoveEvent}
+          stageLabelFor={stageLabelFor}
+          onCellClick={onCellClick}
+          onEditQuote={onEditQuote}
+          onEditEvent={onEditEvent}
+        />
+      ))}
+    </div>
+  );
+}
+
+function MonthWeekRow({
+  weekStart,
+  anchor,
+  jobs,
+  events,
+  dragging,
+  setDragging,
+  onMove,
+  onMoveEvent,
+  stageLabelFor,
+  onCellClick,
+  onEditQuote,
+  onEditEvent,
+}: {
+  weekStart: Date;
+  anchor: Date;
+  jobs: JobRow[];
+  events: ScheduleBlockRow[];
+  dragging: string | null;
+  setDragging: (id: string | null) => void;
+  onMove: (id: string, target: Date) => void;
+  onMoveEvent: (id: string, target: Date) => void;
+  stageLabelFor: (key: string) => string;
+  onCellClick: (start: Date) => void;
+  onEditQuote: (quoteId: string) => void;
+  onEditEvent: (event: ScheduleBlockRow) => void;
+}) {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const today = new Date();
+  const spans = buildSpans(jobs, events, weekStart, 7);
+  const { lane, totalLanes } = assignLanes(spans);
+  // Cap visible lanes to keep month cells short; extras collapse into a
+  // "+N more" indicator per day.
+  const MAX_LANES = 3;
+  const shownSpans = spans.filter((_, i) => lane[i] < MAX_LANES);
+  const shownLaneCount = Math.min(totalLanes, MAX_LANES);
+
+  // Count hidden per day for the "+N more" hint.
+  const hiddenPerCol = new Array(7).fill(0) as number[];
+  for (let i = 0; i < spans.length; i++) {
+    if (lane[i] >= MAX_LANES) {
+      for (let c = spans[i].startCol; c <= spans[i].endCol; c++) hiddenPerCol[c]++;
+    }
+  }
+
+  return (
+    <div
+      className="grid border-t"
+      style={{
+        gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+        gridTemplateRows: `auto repeat(${shownLaneCount}, minmax(0, auto)) auto`,
+      }}
+    >
+      {/* Row 1: date labels */}
+      {days.map((d, i) => {
+        const outsideMonth = !isSameMonth(d, anchor);
+        return (
+          <div
+            key={`h-${d.toISOString()}`}
+            style={{ gridColumn: i + 1, gridRow: 1 }}
+            className={cn(
+              "border-l px-1 pt-0.5 text-right text-[11px] tabular-nums",
+              i === 0 && "border-l-0",
+              outsideMonth ? "text-muted-foreground/50" : "text-muted-foreground",
+              sameDay(d, today) && "font-semibold text-foreground",
+            )}
+          >
+            {d.getDate()}
+          </div>
+        );
+      })}
+      {/* Backgrounds */}
+      {days.map((d, i) => {
+        const outsideMonth = !isSameMonth(d, anchor);
+        return (
+          <div
+            key={`bg-${d.toISOString()}`}
+            style={{ gridColumn: i + 1, gridRow: `2 / -1` }}
+            className={cn(
+              "min-h-[96px] cursor-pointer border-l hover:bg-accent/20",
+              i === 0 && "border-l-0",
+              outsideMonth && "bg-muted/20",
+              sameDay(d, today) && "bg-accent/30",
+            )}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) onCellClick(d);
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              const payload = parseDropPayload(
+                e.dataTransfer.getData("text/plain") || dragging,
+              );
+              if (!payload) return;
+              if (payload.kind === "event") onMoveEvent(payload.id, d);
+              else onMove(payload.id, d);
+              setDragging(null);
+            }}
+          />
+        );
+      })}
+      {/* Spanning chips */}
+      {shownSpans.map((s) => {
+        const originalIdx = spans.indexOf(s);
+        return (
+          <div
+            key={s.id}
+            style={{
+              gridColumnStart: s.startCol + 1,
+              gridColumnEnd: s.endCol + 2,
+              gridRow: lane[originalIdx] + 2,
+            }}
+            className="min-w-0 px-0.5"
+          >
+            {s.kind === "job" ? (
+              <JobChip
+                job={s.job}
+                compact
+                onDragStart={() => setDragging(s.job.id)}
+                onDragEnd={() => setDragging(null)}
+                stageLabelFor={stageLabelFor}
+                onEdit={onEditQuote}
+              />
+            ) : (
+              <EventChip
+                event={s.event}
+                compact
+                onDragStart={() => setDragging(s.event.id)}
+                onDragEnd={() => setDragging(null)}
+                onEdit={onEditEvent}
+              />
+            )}
+          </div>
+        );
+      })}
+      {/* Per-day "+N more" hints in the final row */}
+      {hiddenPerCol.map((n, i) =>
+        n > 0 ? (
+          <div
+            key={`ov-${i}`}
+            style={{ gridColumn: i + 1, gridRow: shownLaneCount + 2 }}
+            className="px-1 pb-0.5 text-[10px] text-muted-foreground"
+          >
+            +{n} more
+          </div>
+        ) : null,
+      )}
     </div>
   );
 }

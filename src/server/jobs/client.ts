@@ -53,6 +53,9 @@ type JobDeliveredEvent = {
     orgId: string;
     jobId: string;
     customerId: string;
+    /** When true, downstream handlers should send the "job complete +
+     * balance-due" email. False = silent stage flip. */
+    notifyCustomer?: boolean;
   };
 };
 

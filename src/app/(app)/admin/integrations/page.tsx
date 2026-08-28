@@ -4,6 +4,7 @@ import { INTEGRATIONS } from "@/lib/integrations";
 import { getAppSession } from "@/server/auth/session";
 import { prisma } from "@/server/db";
 import { QuickBooksPanel } from "@/modules/billing/quickbooks-panel";
+import { IntegrationConnectButton } from "@/modules/shared/integration-connect-button";
 
 export default async function IntegrationsPage() {
   const session = await getAppSession();
@@ -74,7 +75,7 @@ export default async function IntegrationsPage() {
                         <span>{p.authType.replace(/_/g, " ")}</span>
                       </div>
                     </div>
-                    <div className="text-right text-xs">
+                    <div className="flex shrink-0 flex-col items-end gap-2 text-xs">
                       {status ? (
                         <span
                           className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium uppercase tracking-wide ${
@@ -90,6 +91,7 @@ export default async function IntegrationsPage() {
                       ) : (
                         <span className="text-neutral-500">Not connected</span>
                       )}
+                      <IntegrationConnectButton def={p} />
                     </div>
                   </li>
                 );

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
@@ -49,13 +49,19 @@ export function QuickBooksPanel() {
   const s = status.data;
   if (!s) return null;
 
+  const needsReconnect = s.status === "unauthorized";
+
   return (
     <div className="rounded-lg border bg-card p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h3 className="font-medium">QuickBooks Online</h3>
-            {s.connected ? (
+            {needsReconnect ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
+                <AlertTriangle className="h-3 w-3" /> reconnect
+              </span>
+            ) : s.connected ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100">
                 <CheckCircle2 className="h-3 w-3" /> connected
               </span>
@@ -90,6 +96,16 @@ export function QuickBooksPanel() {
               customers can pay you via QuickBooks-hosted payment pages.
             </p>
           )}
+          {needsReconnect && (
+            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-100">
+              <div className="font-medium">QuickBooks needs to be reconnected.</div>
+              <p className="mt-0.5">
+                The refresh token expired or was revoked. Invoices will stop
+                syncing until you reconnect. Your local invoice history stays
+                intact.
+              </p>
+            </div>
+          )}
           {!s.envConfigured && (
             <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
               <strong>QBO env not configured.</strong> Set{" "}
@@ -99,7 +115,17 @@ export function QuickBooksPanel() {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {s.connected ? (
+          {needsReconnect ? (
+            <a
+              href="/api/oauth/quickbooks/start"
+              className={s.envConfigured ? "inline-block" : "pointer-events-none opacity-50"}
+              aria-disabled={!s.envConfigured}
+            >
+              <Button size="sm" disabled={!s.envConfigured}>
+                Reconnect
+              </Button>
+            </a>
+          ) : s.connected ? (
             <Button size="sm" variant="outline" onClick={onDisconnect} disabled={disconnect.isPending}>
               Disconnect
             </Button>

@@ -19,6 +19,8 @@ import {
 } from "../init";
 import { recordTimelineEvent } from "@/server/audit/timeline";
 import { inngest } from "@/server/jobs/client";
+import { prisma } from "@/server/db";
+import { finalizeCheckIn } from "@/server/services/finalize-check-in";
 
 export const jobsRouter = createTRPCRouter({
   // -------- Bays --------
@@ -79,6 +81,7 @@ export const jobsRouter = createTRPCRouter({
           customer: { select: { id: true, name: true } },
           vehicle: { select: { id: true, year: true, make: true, model: true, trim: true, vin: true } },
           bay: { select: { id: true, name: true } },
+          quote: { select: { id: true, number: true } },
         },
       });
       return { items };
@@ -233,32 +236,23 @@ export const jobsRouter = createTRPCRouter({
     .meta({ audit: { entity: "check_in", action: "submit" } })
     .input(checkInInput)
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.db.checkIn.findFirst({ where: { jobId: input.jobId } });
-      const data = {
-        ...input,
+      const { jobId, ...patch } = input;
+      const res = await finalizeCheckIn(prisma, {
+        jobId,
         organizationId: ctx.session.organizationId,
         performedByUserId: ctx.session.userId,
-        exteriorConditionJson: input.exteriorConditionJson as never,
-        interiorConditionJson: input.interiorConditionJson as never,
-      };
-      const checkIn = existing
-        ? await ctx.db.checkIn.update({ where: { id: existing.id }, data })
-        : await ctx.db.checkIn.create({ data });
-
-      // Advance the job to "checked_in" (idempotent).
-      await ctx.db.job.update({
-        where: { id: input.jobId },
-        data: { status: "checked_in", actualStart: new Date() },
+        reason: "form",
+        patch: {
+          ...patch,
+          exteriorConditionJson: patch.exteriorConditionJson as never,
+          interiorConditionJson: patch.interiorConditionJson as never,
+        },
+        timelineData: {
+          mileage: input.mileage,
+          fuelLevelEighths: input.fuelLevelEighths,
+        },
       });
-
-      await recordTimelineEvent(ctx.session.organizationId, {
-        entityType: "job" as never,
-        entityId: input.jobId,
-        kind: "job.checked_in",
-        actorUserId: ctx.session.userId,
-        data: { mileage: input.mileage, fuelLevelEighths: input.fuelLevelEighths },
-      });
-      return checkIn;
+      return { id: res.checkInId };
     }),
 
   // -------- QC --------
@@ -299,7 +293,15 @@ export const jobsRouter = createTRPCRouter({
   markDelivered: orgProcedure
     .use(requirePermission("jobs:complete"))
     .meta({ audit: { entity: "job", action: "deliver" } })
-    .input(z.object({ id: z.string().uuid() }))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        // When true, the delivered event carries a `notifyCustomer: true`
+        // flag so the downstream aftercare handler queues a balance-due /
+        // "job complete" email. False = flip the stage silently.
+        notifyCustomer: z.boolean().default(true),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const job = await ctx.db.job.update({
         where: { id: input.id },
@@ -314,7 +316,7 @@ export const jobsRouter = createTRPCRouter({
         entityId: job.id,
         kind: "job.delivered",
         actorUserId: ctx.session.userId,
-        data: {},
+        data: { notifyCustomer: input.notifyCustomer },
       });
       await recordTimelineEvent(ctx.session.organizationId, {
         entityType: "customer",
@@ -330,6 +332,7 @@ export const jobsRouter = createTRPCRouter({
           orgId: ctx.session.organizationId,
           jobId: job.id,
           customerId: job.customerId,
+          notifyCustomer: input.notifyCustomer,
         },
       });
       return job;

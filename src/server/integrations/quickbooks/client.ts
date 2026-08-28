@@ -196,6 +196,21 @@ function buildClient(orgId: string, connSnapshot: ConnectionRow) {
     }> {
       return api(`/invoice/${externalId}?include=invoiceLink`);
     },
+    async getPayment(externalId: string): Promise<{
+      Payment: {
+        Id: string;
+        TotalAmt?: number;
+        TxnDate?: string;
+        CustomerRef?: { value: string };
+        PaymentMethodRef?: { value: string; name?: string };
+        Line?: Array<{
+          Amount?: number;
+          LinkedTxn?: Array<{ TxnId: string; TxnType: string }>;
+        }>;
+      };
+    }> {
+      return api(`/payment/${externalId}`);
+    },
   };
 }
 

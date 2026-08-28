@@ -32,6 +32,26 @@ export type IntegrationCostType =
 
 export type IntegrationAuthType = "none" | "api_key" | "oauth2" | "webhook_secret";
 
+/**
+ * Declarative shape of a per-tenant config field. Powers the generic
+ * `<IntegrationConfigDialog>` — pick a `type` and the dialog renders the
+ * right input, sets sensible defaults, and shows the value that comes from
+ * the platform fallback as a placeholder when the tenant hasn't overridden.
+ */
+export type IntegrationConfigField = {
+  key: string;
+  label: string;
+  /**
+   * `secret` uses a password input + never echoes existing values back to
+   * the client (the server stores the ciphertext but the "current value"
+   * shown to Owners is always `••••••`).
+   */
+  type: "secret" | "text" | "email";
+  placeholder?: string;
+  required?: boolean;
+  description?: string;
+};
+
 export type IntegrationDef = {
   id: string; // slug used in ExternalIntegration.provider
   name: string;
@@ -41,6 +61,13 @@ export type IntegrationDef = {
   authType: IntegrationAuthType;
   enablesFeatures: FeatureKey[];
   requiredEnv?: string[]; // env vars needed (server-only)
+  /**
+   * Fields shops paste in Admin → Integrations to override the platform's
+   * fallback. Absence of `configFields` means the provider isn't
+   * tenant-configurable via the generic dialog (e.g. QBO uses OAuth,
+   * Supabase Storage is platform-only).
+   */
+  configFields?: readonly IntegrationConfigField[];
   docsUrl: string;
   description: string;
   supportsHealthCheck: boolean;
@@ -74,6 +101,26 @@ export const INTEGRATIONS = [
     authType: "api_key",
     enablesFeatures: ["messaging.email"],
     requiredEnv: ["RESEND_API_KEY"],
+    configFields: [
+      {
+        key: "apiKey",
+        label: "Resend API key",
+        type: "secret",
+        required: true,
+        placeholder: "re_…",
+        description:
+          "Paste an API key from your Resend dashboard → API Keys. Leave blank to use the platform default.",
+      },
+      {
+        key: "defaultFrom",
+        label: "From address",
+        type: "email",
+        required: true,
+        placeholder: "quotes@your-domain.com",
+        description:
+          "Must be a verified sender on your Resend account. Shows up on outbound emails.",
+      },
+    ],
     docsUrl: "https://resend.com/docs",
     description:
       "Transactional email with excellent developer experience. Handles quote emails, magic links, receipts, reminders.",

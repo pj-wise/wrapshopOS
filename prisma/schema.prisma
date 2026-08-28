@@ -68,6 +68,7 @@ model Organization {
   deposits              Deposit[]
   accountingConnections AccountingConnection[]
   accountingSyncRecords AccountingSyncRecord[]
+  mobileCheckInTokens   MobileCheckInToken[]
 
   @@map("organizations")
   @@schema("public")
@@ -843,6 +844,7 @@ model Job {
   qcCheck               QCCheck?
   photos                JobPhoto[]
   scheduleBlocks        ScheduleBlock[]
+  mobileCheckInTokens   MobileCheckInToken[]
   timeEntries           TimeEntry[]
   inventoryTransactions InventoryTransaction[]
   warranties            Warranty[]
@@ -937,13 +939,44 @@ model CheckIn {
   customerSignatureName  String?
   performedByUserId      String   @db.Uuid
   performedAt            DateTime @default(now())
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  // Liability opt-out — set when the shop skipped photo documentation.
+  // The acknowledgement fields form the audit trail if a customer later
+  // disputes damage.
+  optOutOfPhotos             Boolean   @default(false)
+  optOutReason               String?
+  optOutAcknowledgedByUserId String?   @db.Uuid
+  optOutAcknowledgedAt       DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
 
   job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@map("check_ins")
+  @@schema("public")
+}
+
+/// Short-lived hand-off token for the mobile check-in flow. Desktop
+/// generates one, shows a QR pointing at `/m/checkin/{token}`, tech's phone
+/// consumes it. Public route — the token IS the auth. One-time-ish:
+/// `consumedAt` records first mobile visit, `completedAt` records tap-Done.
+model MobileCheckInToken {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @db.Uuid
+  jobId           String    @db.Uuid
+  token           String    @unique
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  completedAt     DateTime?
+  createdByUserId String    @db.Uuid
+  createdAt       DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job          Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([organizationId, jobId])
+  @@map("mobile_check_in_tokens")
   @@schema("public")
 }
 

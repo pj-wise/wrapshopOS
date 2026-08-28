@@ -157,6 +157,18 @@ export type AccountingInvoice = {
   payLinkUrl?: string;
 };
 
+export type AccountingPayment = {
+  externalId: string;
+  amountCents: number;
+  /** ISO date (YYYY-MM-DD or full ISO) reported by the provider. */
+  txnDate?: string;
+  customerExternalId?: string;
+  /** External IDs of the invoices this payment was applied to. */
+  linkedInvoiceExternalIds: string[];
+  /** Free-form label — e.g. QBO PaymentMethodRef.name. */
+  method?: string;
+};
+
 export interface AccountingProvider extends ProviderBase {
   syncCustomer(input: { localId: string; displayName: string; email?: string; phone?: string; externalId?: string }): Promise<AccountingCustomer>;
   createInvoice(input: {
@@ -168,6 +180,7 @@ export interface AccountingProvider extends ProviderBase {
     allowOnlinePayment?: boolean;
   }): Promise<AccountingInvoice>;
   getInvoice(externalId: string): Promise<AccountingInvoice | null>;
+  getPayment(externalId: string): Promise<AccountingPayment | null>;
   reconcilePayments(sinceIso: string): Promise<Array<{ invoiceExternalId: string; amountCents: number; receivedAt: string; externalPaymentId: string }>>;
 }
 

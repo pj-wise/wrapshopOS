@@ -84,7 +84,7 @@ export function QuoteDetail({ id }: { id: string }) {
             <h1 className="text-2xl font-semibold tracking-tight font-mono tabular-nums">
               Q-{String(quote.number).padStart(4, "0")}
             </h1>
-            <QuoteStatusBadge status={quote.status} />
+            <QuoteStatusBadge status={quote.status} expiresAt={quote.expiresAt} />
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             <Link href={`/customers/${quote.customer.id}`} className="hover:underline">

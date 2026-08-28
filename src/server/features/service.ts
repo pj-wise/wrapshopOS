@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import { env } from "@/env";
 import { prisma } from "@/server/db";
 import {
   FEATURES,
@@ -41,15 +42,23 @@ type ResolveArgs = {
  */
 export const featureService = {
   resolveAll: cache(async (args: ResolveArgs): Promise<Record<FeatureKey, ResolvedFeature>> => {
-    // Load all overrides that could apply.
+    // Load all overrides that could apply. Build the scope-match OR
+    // dynamically so we don't need a "never match" sentinel — a stray
+    // non-UUID string in the id filter fails Prisma's column-level UUID
+    // parser at query time.
+    const scopeMatches: Array<Record<string, unknown>> = [
+      { scope: "org", scopeId: null },
+    ];
+    if (args.locationId) {
+      scopeMatches.push({ scope: "location", scopeId: args.locationId });
+    }
+    if (args.userId) {
+      scopeMatches.push({ scope: "user", userId: args.userId });
+    }
     const overrides = await prisma.featureOverride.findMany({
       where: {
         organizationId: args.orgId,
-        OR: [
-          { scope: "org", scopeId: null },
-          { scope: "location", scopeId: args.locationId ?? undefined },
-          args.userId ? { scope: "user", userId: args.userId } : { id: "__never__" },
-        ],
+        OR: scopeMatches as never,
         AND: [
           {
             OR: [
@@ -77,15 +86,39 @@ export const featureService = {
     }
 
     // Live integration availability (does the org have this capability wired?)
+    //
+    // The set covers three cases:
+    //   1. Per-tenant `ExternalIntegration` row (Resend override, future Twilio).
+    //   2. Platform-env fallbacks — e.g. `RESEND_API_KEY` in `.env` counts as
+    //      "email is wired" even without a per-tenant row (hybrid mode).
+    //   3. Zero-config capabilities that are always available (NHTSA, Supabase
+    //      Storage) — these providers work without any credentials or config.
     const integrations = await prisma.externalIntegration.findMany({
       where: { organizationId: args.orgId, enabled: true },
       select: { capability: true, status: true },
     });
-    const wiredCapabilities = new Set(
+    const wiredCapabilities = new Set<string>(
       integrations
         .filter((i) => i.status !== "unauthorized")
         .map((i) => i.capability),
     );
+    if (env.RESEND_API_KEY && env.EMAIL_FROM) wiredCapabilities.add("email");
+    wiredCapabilities.add("vehicle_data");
+    wiredCapabilities.add("storage");
+
+    // QuickBooks tokens live in AccountingConnection, not ExternalIntegration,
+    // so its presence has to be checked separately. Without this, every
+    // accounting.* flag stays "requires_integration" even after a successful
+    // OAuth and the invoices UI stays greyed out.
+    const accounting = await prisma.accountingConnection.findFirst({
+      where: {
+        organizationId: args.orgId,
+        provider: "quickbooks",
+        status: "connected",
+      },
+      select: { id: true },
+    });
+    if (accounting) wiredCapabilities.add("accounting");
 
     const out = {} as Record<FeatureKey, ResolvedFeature>;
     for (const def of FEATURES) {
@@ -145,15 +178,22 @@ function resolveOne(
       minimumTier: def.minimumTier,
     };
   }
-  if (def.requiresIntegration && !wiredCapabilities.has(def.requiresIntegration)) {
-    // If the default was `enabled` but no integration is wired, degrade.
-    if (def.defaultState === "enabled") {
+  if (def.requiresIntegration) {
+    const wired = wiredCapabilities.has(def.requiresIntegration);
+    if (!wired && def.defaultState === "enabled") {
+      // Degrade: default said enabled but nobody wired the capability.
       return {
         key: def.key as FeatureKey,
         state: "requires_integration",
         reason: "integration:missing",
         requiredIntegration: def.requiresIntegration,
       };
+    }
+    if (wired && def.defaultState === "requires_integration") {
+      // Upgrade: catalog says "off until wired" and the org has wired it.
+      // Without this the flag never flips on for e.g. messaging.sms after a
+      // shop connects Twilio.
+      return { key: def.key as FeatureKey, state: "enabled", reason: "default" };
     }
   }
   return { key: def.key as FeatureKey, state: def.defaultState, reason: "default" };

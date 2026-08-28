@@ -15,6 +15,8 @@ import {
 } from "../init";
 import { getVehicleProvider } from "@/server/providers/registry";
 import { recordTimelineEvent } from "@/server/audit/timeline";
+import { dispatchNotification } from "@/server/services/notifications";
+import { leadSourceLabel } from "@/lib/crm-catalog";
 
 export const leadsRouter = createTRPCRouter({
   list: orgProcedure
@@ -89,6 +91,18 @@ export const leadsRouter = createTRPCRouter({
         kind: "lead.created",
         actorUserId: ctx.session.userId,
         data: { name: lead.name, source: lead.source },
+      });
+      await dispatchNotification({
+        organizationId: ctx.session.organizationId,
+        type: "lead.created",
+        title: `New lead: ${lead.name}`,
+        body: `From ${leadSourceLabel(lead.source)}.`,
+        entityRef: {
+          entityType: "lead",
+          entityId: lead.id,
+          url: `/leads/${lead.id}`,
+        },
+        target: { everyone: true },
       });
       return lead;
     }),

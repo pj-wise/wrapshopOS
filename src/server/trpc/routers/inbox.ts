@@ -17,6 +17,43 @@ import { inngest } from "@/server/jobs/client";
 import { recordTimelineEvent } from "@/server/audit/timeline";
 import { renderTemplate } from "@/lib/template-render";
 import { buildMessageContext } from "@/server/services/context-builder";
+import { featureService } from "@/server/features/service";
+import type { FeatureKey, SubscriptionTier } from "@/lib/features";
+
+/**
+ * Feature flag that must be `enabled` before the corresponding channel
+ * can be used for outbound sends. Internal-note threads (`channel="internal"`)
+ * are always available — no integration required.
+ */
+const CHANNEL_FEATURE: Record<string, FeatureKey | null> = {
+  email: "messaging.email",
+  sms: "messaging.sms",
+  internal: null,
+};
+
+/**
+ * Guard the outbound-send paths. Throws PRECONDITION_FAILED with a message
+ * that steers the caller to Admin → Integrations when the underlying
+ * provider isn't wired for this org. Also protects us from silently
+ * persisting a "sent" row that never left the building.
+ */
+async function assertChannelAvailable(
+  ctx: { session: { organizationId: string; organizationTier: SubscriptionTier } },
+  channel: string,
+): Promise<void> {
+  const key = CHANNEL_FEATURE[channel];
+  if (!key) return; // internal notes, or any future channel with no integration
+  const resolved = await featureService.resolve(
+    { orgId: ctx.session.organizationId, orgTier: ctx.session.organizationTier },
+    key,
+  );
+  if (resolved.state === "enabled" || resolved.state === "beta") return;
+  const label = channel === "sms" ? "SMS" : channel;
+  throw new TRPCError({
+    code: "PRECONDITION_FAILED",
+    message: `${label} messaging isn't wired for this org. Connect a provider in Admin → Integrations before sending.`,
+  });
+}
 
 export const inboxRouter = createTRPCRouter({
   listThreads: orgProcedure
@@ -110,6 +147,7 @@ export const inboxRouter = createTRPCRouter({
         include: { customer: { select: { email: true, phone: true } } },
       });
       if (!thread) throw new TRPCError({ code: "NOT_FOUND" });
+      await assertChannelAvailable(ctx, thread.channel);
 
       const message = await ctx.db.$transaction(async (tx) => {
         const msg = await tx.message.create({
@@ -173,6 +211,7 @@ export const inboxRouter = createTRPCRouter({
     .meta({ audit: { entity: "message", action: "compose" } })
     .input(composeMessageInput)
     .mutation(async ({ ctx, input }) => {
+      await assertChannelAvailable(ctx, input.channel);
       // Find or create an open thread for (customer, channel).
       let thread = await ctx.db.messageThread.findFirst({
         where: {

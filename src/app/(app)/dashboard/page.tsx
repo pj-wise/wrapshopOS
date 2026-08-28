@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { ArrowRight, Car, FileText, Inbox, Wrench } from "lucide-react";
+import { ArrowRight, Car, FileText, Inbox, PlugZap, Wrench } from "lucide-react";
 
 import { getAppSession } from "@/server/auth/session";
 import { dbFor } from "@/server/db-scoped";
+import { featureService } from "@/server/features/service";
 import { formatMoney } from "@/lib/money";
 import { JobCalendar } from "@/modules/production/job-calendar";
 import { PendingSchedulingList } from "@/modules/production/pending-scheduling-list";
@@ -26,6 +27,7 @@ export default async function DashboardPage() {
     revenueThisMonth,
     recentActivity,
     unreadThreads,
+    unreadSmsThreads,
   ] = await Promise.all([
     db.job.count({
       where: {
@@ -33,8 +35,15 @@ export default async function DashboardPage() {
         status: { in: ["checked_in", "prep", "in_progress", "qc", "ready_for_pickup"] },
       },
     }),
+    // "Awaiting approval" = sent or viewed, and not past its expiration
+    // date. An expired quote is stale, not pending — matches what the
+    // shop expects to see in the queue.
     db.quote.count({
-      where: { deletedAt: null, status: { in: ["sent", "viewed"] } },
+      where: {
+        deletedAt: null,
+        status: { in: ["sent", "viewed"] },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
     }),
     db.invoice.aggregate({
       _sum: { balanceCents: true },
@@ -60,47 +69,79 @@ export default async function DashboardPage() {
     db.messageThread.count({
       where: { status: "open", unreadCount: { gt: 0 } },
     }),
+    // Surfaced separately so we can flag "you have SMS you can't reply to
+    // until an SMS provider is connected" when applicable.
+    db.messageThread.count({
+      where: { status: "open", unreadCount: { gt: 0 }, channel: "sms" },
+    }),
   ]);
+
+  const [smsFeature, emailFeature] = await Promise.all([
+    featureService.resolve(
+      { orgId: session.organizationId, orgTier: session.organizationTier },
+      "messaging.sms",
+    ),
+    featureService.resolve(
+      { orgId: session.organizationId, orgTier: session.organizationTier },
+      "messaging.email",
+    ),
+  ]);
+  const isReady = (s: string) => s === "enabled" || s === "beta";
+  const emailReady = isReady(emailFeature.state);
+  const smsReady = isReady(smsFeature.state);
+  const inboxNeedsSetup = !emailReady || !smsReady;
+  const smsNeedsSetup =
+    unreadSmsThreads > 0 &&
+    smsFeature.state !== "enabled" &&
+    smsFeature.state !== "beta";
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Welcome back{session.name ? `, ${session.name}` : ""}. Here&apos;s what&apos;s happening at{" "}
-          <strong>{session.organizationName}</strong>.
-        </p>
-      </div>
+      {/*
+        Header block + KPI cards share one row on wide viewports so we save
+        vertical space. On <lg we fall back to two rows (header stacked on
+        top of a 2-column card grid). `items-stretch` on the row makes the
+        header block match the card height without a fixed pixel value.
+      */}
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-stretch">
+        <div className="flex flex-col justify-center lg:w-64 lg:shrink-0">
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Welcome back{session.name ? `, ${session.name}` : ""}. Here&apos;s what&apos;s happening at{" "}
+            <strong>{session.organizationName}</strong>.
+          </p>
+        </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatLink
-          href="/jobs"
-          label="Vehicles in shop"
-          value={vehiclesInShopCount.toString()}
-          hint={vehiclesInShopCount === 0 ? "No jobs checked in" : "In production"}
-          icon={Car}
-        />
-        <StatLink
-          href="/quotes"
-          label="Quotes awaiting approval"
-          value={openQuotesCount.toString()}
-          hint={openQuotesCount === 0 ? "Nothing pending" : "Sent or viewed"}
-          icon={FileText}
-        />
-        <StatLink
-          href="/invoices"
-          label="Outstanding"
-          value={formatMoney(outstandingInvoices._sum.balanceCents ?? 0)}
-          hint={`${outstandingInvoices._count._all} open invoice${outstandingInvoices._count._all === 1 ? "" : "s"}`}
-          icon={Wrench}
-        />
-        <StatLink
-          href="/reports"
-          label="Revenue this month"
-          value={formatMoney(revenueThisMonth._sum.totalCents ?? 0)}
-          hint="From approved quotes"
-          icon={ArrowRight}
-        />
+        <div className="grid flex-1 grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatLink
+            href="/jobs"
+            label="Vehicles in shop"
+            value={vehiclesInShopCount.toString()}
+            hint={vehiclesInShopCount === 0 ? "No jobs checked in" : "In production"}
+            icon={Car}
+          />
+          <StatLink
+            href="/quotes?status=awaiting"
+            label="Quotes awaiting approval"
+            value={openQuotesCount.toString()}
+            hint={openQuotesCount === 0 ? "Nothing pending" : "Sent or viewed"}
+            icon={FileText}
+          />
+          <StatLink
+            href="/invoices"
+            label="Outstanding"
+            value={formatMoney(outstandingInvoices._sum.balanceCents ?? 0)}
+            hint={`${outstandingInvoices._count._all} open invoice${outstandingInvoices._count._all === 1 ? "" : "s"}`}
+            icon={Wrench}
+          />
+          <StatLink
+            href="/reports"
+            label="Revenue this month"
+            value={formatMoney(revenueThisMonth._sum.totalCents ?? 0)}
+            hint="From approved quotes"
+            icon={ArrowRight}
+          />
+        </div>
       </div>
 
       <div className="mt-6">
@@ -156,21 +197,56 @@ export default async function DashboardPage() {
             <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
               Inbox
             </h2>
-            <Link href="/inbox" className="text-xs text-muted-foreground hover:underline">
-              Open inbox →
-            </Link>
+            {!inboxNeedsSetup && (
+              <Link href="/inbox" className="text-xs text-muted-foreground hover:underline">
+                Open inbox →
+              </Link>
+            )}
           </div>
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-muted text-muted-foreground">
-              <Inbox className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="text-2xl font-semibold tabular-nums">{unreadThreads}</div>
-              <div className="text-xs text-muted-foreground">
-                unread conversation{unreadThreads === 1 ? "" : "s"}
+
+          {inboxNeedsSetup ? (
+            <Link
+              href="/admin/integrations"
+              className="group flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-amber-300/60 bg-amber-50/40 px-4 py-6 text-center transition-colors hover:bg-amber-100/60 dark:border-amber-700/40 dark:bg-amber-500/5 dark:hover:bg-amber-500/10"
+            >
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100">
+                <PlugZap className="h-5 w-5" />
               </div>
-            </div>
-          </div>
+              <div className="text-base font-semibold text-amber-950 dark:text-amber-50">
+                Setup required
+              </div>
+              <p className="max-w-[28ch] text-xs text-muted-foreground">
+                Connect a messaging provider to start replying to customers.
+              </p>
+              <span className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-amber-800 group-hover:underline dark:text-amber-100">
+                Configure integrations
+                <ArrowRight className="h-3 w-3" />
+              </span>
+            </Link>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="grid h-9 w-9 place-items-center rounded-full bg-muted text-muted-foreground">
+                  <Inbox className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="text-2xl font-semibold tabular-nums">{unreadThreads}</div>
+                  <div className="text-xs text-muted-foreground">
+                    unread conversation{unreadThreads === 1 ? "" : "s"}
+                  </div>
+                </div>
+              </div>
+              {smsNeedsSetup && (
+                <p className="mt-3 text-[11px] text-muted-foreground">
+                  {unreadSmsThreads} SMS thread{unreadSmsThreads === 1 ? "" : "s"} awaiting a reply
+                  — <Link href="/admin/integrations" className="underline hover:text-foreground">
+                    connect an SMS provider
+                  </Link>{" "}
+                  to send.
+                </p>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

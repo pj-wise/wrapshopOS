@@ -27,6 +27,9 @@ import { invoicesRouter } from "./routers/invoices";
 import { paymentsRouter } from "./routers/payments";
 import { accountingRouter } from "./routers/accounting";
 import { workflowRouter } from "./routers/workflow";
+import { integrationsRouter } from "./routers/integrations";
+import { checkInRouter } from "./routers/check-in";
+import { platformRouter } from "./routers/platform";
 
 export const appRouter = createTRPCRouter({
   health: healthRouter,
@@ -55,6 +58,9 @@ export const appRouter = createTRPCRouter({
   payments: paymentsRouter,
   accounting: accountingRouter,
   workflow: workflowRouter,
+  integrations: integrationsRouter,
+  checkIn: checkInRouter,
+  platform: platformRouter,
 });
 
 export type AppRouter = typeof appRouter;

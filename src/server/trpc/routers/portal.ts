@@ -8,6 +8,8 @@ import { prisma } from "@/server/db";
 import { recordTimelineEvent } from "@/server/audit/timeline";
 import { inngest } from "@/server/jobs/client";
 import { materializeJobFromQuote } from "@/server/services/materialize-job-from-quote";
+import { materializeInvoiceFromJob } from "@/server/services/materialize-invoice-from-job";
+import { dispatchNotification } from "@/server/services/notifications";
 import { createTRPCRouter, publicProcedure } from "../init";
 
 /**
@@ -74,7 +76,10 @@ export const portalRouter = createTRPCRouter({
     .mutation(async ({ input, ctx }) => {
       const quote = await prisma.quote.findFirst({
         where: { portalToken: input.token, deletedAt: null },
-        include: { items: true },
+        include: {
+          items: true,
+          customer: { select: { name: true } },
+        },
       });
       if (!quote) throw new TRPCError({ code: "NOT_FOUND" });
       if (["approved", "declined", "revoked"].includes(quote.status)) {
@@ -135,16 +140,22 @@ export const portalRouter = createTRPCRouter({
         });
       });
 
-      // Materialize the Job synchronously so it shows up in the shop's
-      // "Pending Scheduling" list on the next refetch — no dependency on
-      // the Inngest Dev Server being up. The Inngest event still fires so
-      // downstream side-effects (email + audit ledger) run, and the
-      // `job.create_from_quote` handler no-ops thanks to the helper's
-      // per-quoteId idempotency check.
+      // Materialize the Job + Invoice synchronously so both show up in the
+      // shop's UI on the next refetch — no dependency on the Inngest Dev
+      // Server being up. The Inngest event still fires so downstream
+      // side-effects (email + audit ledger) run, and both materialize
+      // helpers no-op thanks to their per-quoteId / per-jobId idempotency
+      // check.
       try {
-        await materializeJobFromQuote(quote.organizationId, quote.id);
+        const jobResult = await materializeJobFromQuote(
+          quote.organizationId,
+          quote.id,
+        );
+        if (jobResult.jobId) {
+          await materializeInvoiceFromJob(quote.organizationId, jobResult.jobId);
+        }
       } catch (err) {
-        console.error("[portal] materializeJobFromQuote failed", err);
+        console.error("[portal] materialize job/invoice failed", err);
       }
       inngest
         .send({
@@ -156,6 +167,24 @@ export const portalRouter = createTRPCRouter({
           },
         })
         .catch((err) => console.error("[portal] inngest send failed", err));
+
+      // Bell notification — every active member of the shop sees a "Quote
+      // approved" entry. Doesn't wait on Inngest — writes rows directly.
+      await dispatchNotification({
+        organizationId: quote.organizationId,
+        type: "quote.approved",
+        title: `${quote.customer.name} approved Q-${String(quote.number).padStart(4, "0")}`,
+        body:
+          input.signatureName?.trim()
+            ? `Signed by ${input.signatureName.trim()}.`
+            : undefined,
+        entityRef: {
+          entityType: "quote",
+          entityId: quote.id,
+          url: `/quotes/${quote.id}`,
+        },
+        target: { everyone: true },
+      });
 
       await Promise.all([
         recordTimelineEvent(quote.organizationId, {

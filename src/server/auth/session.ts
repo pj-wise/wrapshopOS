@@ -5,6 +5,7 @@ import { cache } from "react";
 
 import { createSupabaseServerClient } from "./supabase-server";
 import { prisma } from "@/server/db";
+import { env } from "@/env";
 
 export type AppSession = {
   userId: string;
@@ -18,7 +19,24 @@ export type AppSession = {
   memberId: string;
   roleKey: string;
   permissions: Set<string>;
+  /**
+   * True when the signed-in user's email is in `PLATFORM_ADMIN_EMAILS`.
+   * Grants cross-org visibility + tier control via `/admin/platform`.
+   * Not the same as any org-level role — this bit is scoped to the
+   * WrapShop-OS-operator (i.e. me/us), not to a shop tenant.
+   */
+  isPlatformAdmin: boolean;
 };
+
+/** Case-insensitive membership check against the env-driven allow list. */
+export function isPlatformAdminEmail(email: string): boolean {
+  const raw = env.PLATFORM_ADMIN_EMAILS ?? "";
+  const list = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return list.includes(email.trim().toLowerCase());
+}
 
 /**
  * Resolves the current user + their active org + role permissions.
@@ -65,6 +83,7 @@ export const getAppSession = cache(async (): Promise<AppSession> => {
     memberId: member.id,
     roleKey: member.role.key,
     permissions: new Set(member.role.permissions.map((rp) => rp.permissionKey)),
+    isPlatformAdmin: isPlatformAdminEmail(user.email ?? ""),
   };
 });
 

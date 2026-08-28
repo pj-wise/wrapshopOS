@@ -388,6 +388,17 @@ export const FEATURES = [
     upgradeCopy: "Included with the Pro plan.",
   },
   {
+    key: "operations.mobile_check_in",
+    name: "Mobile Check-In",
+    category: "operations",
+    defaultState: "enabled",
+    minimumTier: "pro",
+    description:
+      "Hand check-ins to the tech's phone for photo capture, or record a signed opt-out for liability defense.",
+    upgradeCopy:
+      "Included with the Pro plan. Photo capture uses your shop's storage allowance.",
+  },
+  {
     key: "operations.time_tracking",
     name: "Time Tracking",
     category: "operations",

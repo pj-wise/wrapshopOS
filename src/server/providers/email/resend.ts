@@ -6,13 +6,26 @@ import type { EmailProvider, SendEmailInput, SendEmailResult } from "../types";
  * Resend-backed EmailProvider. Uses their REST API directly (no SDK) to avoid
  * adding a Node-only dep for a single fetch call.
  *
- * When RESEND_API_KEY is missing, the noop email provider is used instead —
- * resolved at the registry level. This factory throws if called without a key.
+ * Factory takes a config object rather than reading env directly — the
+ * provider registry (`src/server/providers/registry.ts`) decides at resolve
+ * time whether the config came from the tenant's ExternalIntegration row or
+ * from the platform's env vars, then hands the merged config down.
+ *
+ * The noop email provider is used instead when no `apiKey` is available —
+ * that fallback is applied at the registry level, not here.
  */
+
+export type ResendProviderConfig = {
+  apiKey: string;
+  defaultFrom: string;
+  /** Optional; only needed if you want to verify inbound webhooks locally. */
+  webhookSecret?: string;
+};
 
 const RESEND_URL = "https://api.resend.com/emails";
 
-export function createResendProvider(apiKey: string, defaultFrom: string): EmailProvider {
+export function createResendProvider(config: ResendProviderConfig): EmailProvider {
+  const { apiKey, defaultFrom } = config;
   if (!apiKey) throw new Error("createResendProvider: apiKey is required");
 
   return {

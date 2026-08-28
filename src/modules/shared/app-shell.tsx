@@ -15,6 +15,7 @@ import {
   BarChart3,
   Settings,
   Building2,
+  Zap,
 } from "lucide-react";
 
 import type { AppSession } from "@/server/auth/session";
@@ -125,6 +126,26 @@ export function AppShell({
                   </div>
                 );
               })}
+              {/* Platform-operator section — only visible for allow-listed
+                  emails via `PLATFORM_ADMIN_EMAILS`. Not a role. */}
+              {session.isPlatformAdmin && (
+                <div>
+                  <p className="mb-1 px-2 text-[10px] font-medium uppercase tracking-widest text-amber-600 dark:text-amber-400">
+                    Platform
+                  </p>
+                  <ul className="space-y-0.5">
+                    <li>
+                      <Link
+                        href="/admin/platform"
+                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
+                      >
+                        <Zap className="h-4 w-4" />
+                        Orgs &amp; tiers
+                      </Link>
+                    </li>
+                  </ul>
+                </div>
+              )}
             </nav>
           </aside>
 
