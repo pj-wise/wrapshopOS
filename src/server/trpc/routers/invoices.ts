@@ -15,6 +15,7 @@ import {
 import { inngest } from "@/server/jobs/client";
 import { recordTimelineEvent } from "@/server/audit/timeline";
 import { isAccountingConnected } from "@/server/providers/registry";
+import { renderInvoiceEmail } from "@/server/services/invoice-email";
 
 export const invoicesRouter = createTRPCRouter({
   list: orgProcedure
@@ -189,6 +190,77 @@ export const invoicesRouter = createTRPCRouter({
         },
       }),
     ),
+
+  /**
+   * Send (or resend) the customer-facing invoice email. Uses the shared
+   * renderer + `invoice.email.send` Inngest event so the DEV_EMAIL_OVERRIDE
+   * safety net applies. Returns the queued target address (or the dev
+   * override target when applicable) so the UI can toast something useful.
+   */
+  resend: orgProcedure
+    .use(requirePermission("invoices:write"))
+    .meta({ audit: { entity: "invoice", action: "resend_email" } })
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        kind: z.enum(["initial", "balance_reminder", "resend"]).default("resend"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rendered = await renderInvoiceEmail(
+        ctx.session.organizationId,
+        input.id,
+        input.kind,
+      );
+      if (!rendered) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Invoice not found, or customer has no email on file.",
+        });
+      }
+      await inngest.send({
+        name: "invoice.email.send",
+        data: {
+          orgId: ctx.session.organizationId,
+          invoiceId: input.id,
+          kind: input.kind,
+        },
+      });
+      return { ok: true, to: rendered.to, kind: input.kind };
+    }),
+
+  /**
+   * Dev-mode preview: renders the HTML without sending. Returns the full
+   * html/text/subject so the invoice detail page can pop a preview window.
+   */
+  previewEmail: orgProcedure
+    .use(requirePermission("invoices:read"))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        kind: z.enum(["initial", "balance_reminder", "resend"]).default("resend"),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const rendered = await renderInvoiceEmail(
+        ctx.session.organizationId,
+        input.id,
+        input.kind,
+      );
+      if (!rendered) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Invoice not found, or customer has no email on file.",
+        });
+      }
+      return {
+        to: rendered.to,
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
+        hasPayLink: !!rendered.qboPayLink,
+      };
+    }),
 
   /**
    * Manually re-enqueue a QBO sync for this invoice. Used to retry after

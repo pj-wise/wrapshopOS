@@ -91,7 +91,9 @@ export async function materializeInvoiceFromJob(
       taxCents,
       totalCents,
       balanceCents: totalCents,
-      sentAt: opts.status === "draft" ? null : new Date(),
+      // sentAt is intentionally NOT set here — it tracks the customer
+      // email dispatch, not the invoice status. The invoice-email-send
+      // handler stamps it when the notification actually goes out.
       items: { createMany: { data: lines } },
     },
   });
@@ -135,6 +137,18 @@ export async function materializeInvoiceFromJob(
       where: { id: invoice.id },
       data: { qboSyncStatus: "syncing" },
     });
+    // Email will be dispatched by qbo.sync.invoice once we have a payLink.
+  } else {
+    // No QBO — email immediately with the "reply to arrange payment" copy.
+    // Once QBO is connected the shop can resend for the pay-link version.
+    await inngest
+      .send({
+        name: "invoice.email.send",
+        data: { orgId, invoiceId: invoice.id, kind: "initial" },
+      })
+      .catch((err) =>
+        console.error("[invoice.materialize] invoice.email.send failed", err),
+      );
   }
 
   return { invoiceId: invoice.id, number: invoice.number, created: true };

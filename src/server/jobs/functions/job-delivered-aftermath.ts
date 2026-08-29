@@ -31,7 +31,26 @@ export const jobDeliveredAftermath = inngest.createFunction(
   },
   { event: "job.delivered" },
   async ({ event, step }) => {
-    const { orgId, jobId, customerId } = event.data;
+    const { orgId, jobId, customerId, notifyCustomer } = event.data;
+
+    // Balance-due reminder — only when the caller flagged notifyCustomer
+    // (dialog's "Mark delivered & send balance reminder" button) AND the
+    // invoice has a non-zero balance. Runs in its own step so it doesn't
+    // couple to the warranty/review flow.
+    if (notifyCustomer !== false) {
+      await step.run("balance-reminder", async () => {
+        const invoice = await prisma.invoice.findFirst({
+          where: { jobId, organizationId: orgId, deletedAt: null },
+          select: { id: true, balanceCents: true },
+        });
+        if (!invoice || invoice.balanceCents <= 0) return { skipped: true };
+        await inngest.send({
+          name: "invoice.email.send",
+          data: { orgId, invoiceId: invoice.id, kind: "balance_reminder" },
+        });
+        return { queued: true, invoiceId: invoice.id };
+      });
+    }
 
     return await step.run("aftermath", async () => {
       const job = await prisma.job.findFirst({

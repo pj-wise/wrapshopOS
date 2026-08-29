@@ -7,6 +7,7 @@ import { healthCheckIntegrations } from "./functions/integration-health-check";
 import { createJobFromQuote } from "./functions/job-create-from-quote";
 import { jobDeliveredAftermath } from "./functions/job-delivered-aftermath";
 import { invoiceFromDeliveredJob } from "./functions/invoice-from-delivered-job";
+import { invoiceEmailSend } from "./functions/invoice-email-send";
 import { qboSyncInvoice } from "./functions/qbo-sync-invoice";
 import { qboWebhookReceived } from "./functions/qbo-webhook-received";
 import { qboTokenRefresh } from "./functions/qbo-token-refresh";
@@ -18,6 +19,7 @@ export const functions = [
   createJobFromQuote,
   jobDeliveredAftermath,
   invoiceFromDeliveredJob,
+  invoiceEmailSend,
   qboSyncInvoice,
   qboWebhookReceived,
   qboTokenRefresh,

@@ -42,6 +42,12 @@ export const env = createEnv({
     // org RBAC catalog — it's a WrapShop-OS-operator-level flag scoped
     // to whoever runs the platform.
     PLATFORM_ADMIN_EMAILS: z.string().default(""),
+
+    // Dev safety net: when set (and NODE_ENV != production), any outbound
+    // customer email is redirected here instead of the real address. Lets
+    // you test the invoice-email flow end-to-end without risking a real
+    // customer inbox during dev iteration.
+    DEV_EMAIL_OVERRIDE: z.string().email().optional(),
   },
 
   client: {
@@ -75,6 +81,7 @@ export const env = createEnv({
 
     SENTRY_DSN: process.env.SENTRY_DSN,
     PLATFORM_ADMIN_EMAILS: process.env.PLATFORM_ADMIN_EMAILS,
+    DEV_EMAIL_OVERRIDE: process.env.DEV_EMAIL_OVERRIDE,
 
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,

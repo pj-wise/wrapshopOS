@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Copy, ExternalLink, RefreshCw, Send } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, Eye, Mail, RefreshCw, Send } from "lucide-react";
 
 import { trpc } from "@/lib/trpc/client";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ export function InvoiceDetail({ id }: { id: string }) {
   const q = trpc.invoices.get.useQuery({ id });
   const markSent = trpc.invoices.markSent.useMutation();
   const resync = trpc.invoices.resyncToQbo.useMutation();
+  const resend = trpc.invoices.resend.useMutation();
   const utils = trpc.useUtils();
 
   if (q.isLoading) return <Skeleton className="mx-auto h-64 max-w-6xl" />;
@@ -45,6 +46,33 @@ export function InvoiceDetail({ id }: { id: string }) {
       toast.success("Queued QBO sync.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Sync failed");
+    }
+  }
+
+  async function onResend() {
+    try {
+      const kind = inv.sentAt ? "resend" : "initial";
+      const res = await resend.mutateAsync({ id, kind });
+      toast.success(`Emailing ${res.to}…`);
+      await utils.invoices.get.invalidate({ id });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Resend failed");
+    }
+  }
+
+  async function onPreview() {
+    try {
+      const preview = await utils.invoices.previewEmail.fetch({ id, kind: "resend" });
+      const w = window.open("", "_blank", "width=640,height=800");
+      if (!w) {
+        toast.error("Popup blocked — allow popups for this site to preview.");
+        return;
+      }
+      w.document.write(preview.html);
+      w.document.title = preview.subject;
+      w.document.close();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Preview failed");
     }
   }
 
@@ -95,6 +123,19 @@ export function InvoiceDetail({ id }: { id: string }) {
               {inv.qboSyncStatus === "synced" ? "Resync" : "Sync to QBO"}
             </Button>
           )}
+          <Button variant="outline" size="sm" onClick={onPreview}>
+            <Eye className="mr-1 h-3.5 w-3.5" /> Preview email
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onResend}
+            disabled={resend.isPending || !inv.customer.email}
+            title={inv.customer.email ? undefined : "Customer has no email on file"}
+          >
+            <Mail className="mr-1 h-3.5 w-3.5" />
+            {inv.sentAt ? "Resend" : "Send"}
+          </Button>
           <Button size="sm" onClick={() => setPayOpen(true)} disabled={inv.balanceCents === 0}>
             Record payment
           </Button>

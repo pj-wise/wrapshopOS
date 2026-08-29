@@ -95,8 +95,10 @@ export const qboSyncInvoice = inngest.createFunction(
             qboSyncStatus: "synced",
             qboSyncError: null,
             qboPayLink: created.payLinkUrl ?? null,
+            // Only bump status draft → sent. Don't touch sentAt here —
+            // that's the customer-email-dispatched timestamp, owned by
+            // the invoice-email-send handler.
             status: invoice.status === "draft" ? "sent" : invoice.status,
-            sentAt: invoice.sentAt ?? new Date(),
           },
         });
 
@@ -119,6 +121,21 @@ export const qboSyncInvoice = inngest.createFunction(
             errorMessage: null,
           },
         });
+
+        // Fire the customer-facing email now that we have a real QBO pay
+        // link. Skipped when the invoice has already been emailed (Inngest
+        // idempotency on the invoice-email.send handler dedupes repeats of
+        // the same {invoiceId, kind}).
+        if (!invoice.sentAt) {
+          await inngest
+            .send({
+              name: "invoice.email.send",
+              data: { orgId, invoiceId: invoice.id, kind: "initial" },
+            })
+            .catch((err) =>
+              console.error("[qbo.sync.invoice] invoice.email.send failed", err),
+            );
+        }
 
         return { synced: true, externalId: created.externalId, payLink: created.payLinkUrl ?? null };
       } catch (err) {

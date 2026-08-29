@@ -63,6 +63,14 @@ type QboSyncInvoiceEvent = {
   data: { orgId: string; invoiceId: string };
 };
 
+type InvoiceEmailSendEvent = {
+  data: {
+    orgId: string;
+    invoiceId: string;
+    kind: "initial" | "balance_reminder" | "resend";
+  };
+};
+
 type QboWebhookReceivedEvent = {
   data: { orgId: string; webhookEventId: string };
 };
@@ -78,6 +86,7 @@ export type WrapShopEvents = {
   "quote.approved": QuoteApprovedEvent;
   "job.delivered": JobDeliveredEvent;
   "qbo.sync.invoice": QboSyncInvoiceEvent;
+  "invoice.email.send": InvoiceEmailSendEvent;
   "qbo.webhook.received": QboWebhookReceivedEvent;
   "qbo.token.refresh": QboTokenRefreshEvent;
 };
