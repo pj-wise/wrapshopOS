@@ -1,32 +1,64 @@
 /**
- * Supabase magic-link callback. Exchanges `code` for a session cookie, then
- * routes the user based on whether they already belong to any organization.
+ * Supabase auth callback. Exchanges a `code` for a session cookie.
  *
- * Next.js 16: Route handler receives an async cookies() context; we go through
- * the supabase-server helper.
+ * The primary sign-in path is now email + password or a 6-digit emailed code
+ * (both handled client-side on /login), so this route only serves stale
+ * magic-link emails still sitting in inboxes and any future OAuth provider.
+ *
+ * Next.js 16: cookies must be written onto the response object we actually
+ * return. Mutating the request-scoped `cookies()` store and then returning an
+ * unrelated `NextResponse.redirect(...)` silently drops the session, which is
+ * why this route builds the response first and hands its cookie jar to
+ * `createServerClient`.
  */
 
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
-import { createSupabaseServerClient } from "@/server/auth/supabase-server";
-import { prisma } from "@/server/db";
+import { env } from "@/env";
+
+function loginRedirect(request: Request, error: string) {
+  return NextResponse.redirect(
+    new URL(`/login?error=${encodeURIComponent(error)}`, request.url),
+  );
+}
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const next = url.searchParams.get("next") ?? "/dashboard";
 
+  // Supabase reports verify-endpoint failures in the URL *fragment*, which
+  // never reaches the server — all we can see is the missing code. The banner
+  // on /login reads that fragment client-side and shows the real reason.
   if (!code) {
-    return NextResponse.redirect(new URL("/login?error=missing_code", request.url));
+    return loginRedirect(request, "missing_code");
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const cookieStore = await cookies();
+  const response = NextResponse.redirect(new URL(next, request.url));
 
+  const supabase = createServerClient(
+    env.NEXT_PUBLIC_SUPABASE_URL,
+    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, options);
+          }
+        },
+      },
+    },
+  );
+
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(error.message)}`, request.url),
-    );
+    return loginRedirect(request, error.message);
   }
 
   const {
@@ -34,18 +66,10 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.redirect(new URL("/login?error=no_user", request.url));
+    return loginRedirect(request, "no_user");
   }
 
-  // Does this user already belong to an org?
-  const membership = await prisma.orgMember.findFirst({
-    where: { userId: user.id, status: "active" },
-    select: { id: true },
-  });
-
-  if (!membership) {
-    return NextResponse.redirect(new URL("/onboarding", request.url));
-  }
-
-  return NextResponse.redirect(new URL(next, request.url));
+  // No membership lookup here — `getAppSession()` already redirects to
+  // /onboarding when the user has no active OrgMember.
+  return response;
 }

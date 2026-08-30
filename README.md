@@ -72,7 +72,12 @@ pnpm dev
 # → http://localhost:3000
 ```
 
-First login: click Get started → email → magic link → onboarding creates your first Organization + default Location + Owner membership.
+First login: click Get started → enter your email → "Email me a code" → type the 6-digit code from your inbox → onboarding creates your first Organization + default Location + Owner membership. Set a password afterwards under user menu → Security to skip the code next time.
+
+> Sign-in uses codes rather than magic links on purpose: a one-time link can be consumed
+> by an email or antivirus link scanner before you ever click it, which surfaces as
+> `otp_expired`. This requires the Supabase **Magic Link** and **Confirm signup** email
+> templates to use `{{ .Token }}` instead of `{{ .ConfirmationURL }}`.
 
 ## Environment variables
 
@@ -85,7 +90,7 @@ NEXT_PUBLIC_SUPABASE_URL  https://<ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 ENCRYPTION_KEY            32-byte hex (openssl rand -hex 32)
-NEXT_PUBLIC_APP_URL       Public app URL — used in email links + OAuth redirects
+NEXT_PUBLIC_APP_URL       Public app URL — used in customer-facing links + OAuth redirects
 ```
 
 Optional integrations (features auto-degrade to noop / disabled when missing):

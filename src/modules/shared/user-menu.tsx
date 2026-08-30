@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronDown, LogOut, User as UserIcon } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, User as UserIcon } from "lucide-react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
@@ -55,6 +56,14 @@ export function UserMenu({
         >
           <div className="px-3 py-2 text-xs text-neutral-500">{email}</div>
           <div className="my-1 h-px bg-neutral-200 dark:bg-neutral-800" />
+          <Link
+            href="/settings/security"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-900"
+          >
+            <KeyRound className="h-4 w-4" />
+            Security
+          </Link>
           <button
             type="button"
             onClick={signOut}

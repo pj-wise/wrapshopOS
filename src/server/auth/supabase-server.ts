@@ -10,6 +10,12 @@ import { env } from "@/env";
  * Route Handlers, and tRPC procedures.
  *
  * Next.js 16: `cookies()` is async. Always await.
+ *
+ * NOT for route handlers that must persist a new session (sign-in, OAuth
+ * callback): `setAll` writes to the request-scoped store, so cookies never
+ * reach a separately constructed `NextResponse.redirect(...)`. Those routes
+ * should build the response first and set cookies on it — see
+ * `src/app/auth/callback/route.ts`.
  */
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
@@ -28,8 +34,9 @@ export async function createSupabaseServerClient() {
               cookieStore.set(name, value, options);
             }
           } catch {
-            // called from a Server Component — Next won't let us set cookies.
-            // Proxy will refresh the session on the next request.
+            // Called from a Server Component — Next won't let us set cookies.
+            // This catch exists only for that path; the proxy refreshes the
+            // session on the next request.
           }
         },
       },

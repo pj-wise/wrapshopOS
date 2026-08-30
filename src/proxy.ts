@@ -48,17 +48,34 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+    return redirectWith(url, response);
   }
 
   // Redirect authenticated users away from /login.
   if (isAuthRoute && user) {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+    url.pathname = url.searchParams.get("next") ?? "/dashboard";
+    url.searchParams.delete("next");
+    return redirectWith(url, response);
   }
 
   return response;
+}
+
+/**
+ * `getUser()` above may rotate the refresh token, in which case `setAll` has
+ * already rebuilt `response` with the new cookies. A bare
+ * `NextResponse.redirect()` is a fresh object that inherits none of them — the
+ * rotated tokens would be dropped while the old refresh token is already
+ * spent, permanently breaking the session and looping the user back to
+ * /login. Always carry the cookies across.
+ */
+function redirectWith(url: URL, from: NextResponse) {
+  const redirect = NextResponse.redirect(url);
+  for (const cookie of from.cookies.getAll()) {
+    redirect.cookies.set(cookie);
+  }
+  return redirect;
 }
 
 // Route groups like `(app)/dashboard` render as `/dashboard`. Whitelist those.
@@ -83,7 +100,9 @@ function matchesAppSegment(pathname: string): boolean {
 
 export const config = {
   matcher: [
-    // Skip Next.js internals + static assets
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Skip Next.js internals, static assets, and the auth/API endpoints —
+    // those build their own Supabase client, and two clients contending over
+    // the same cookie jar on one request is how auth flows break.
+    "/((?!_next/static|_next/image|favicon.ico|api/|auth/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
