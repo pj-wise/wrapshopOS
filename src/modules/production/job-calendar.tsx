@@ -19,6 +19,10 @@ import {
   resolveEventTone,
 } from "@/lib/event-catalog";
 import type { RouterOutputs } from "@/lib/trpc/types";
+import {
+  formatJobScheduleLabel,
+  formatJobVehicleLabel,
+} from "@/lib/schedule-labels";
 import { NewEventDialog } from "./new-event-dialog";
 import { EditEventDialog } from "./edit-event-dialog";
 import { EditQuoteDialog } from "@/modules/quotes/edit-quote-dialog";
@@ -366,25 +370,34 @@ function JobChip({
   onEdit: (quoteId: string) => void;
 }) {
   const tone = JOB_STAGE_TONES[job.status as JobStageKey] ?? JOB_STAGE_TONES.approved;
-  const vehicle = job.vehicle
-    ? [job.vehicle.year, job.vehicle.make, job.vehicle.model].filter(Boolean).join(" ")
-    : null;
-  const title = job.title || vehicle || job.customer.name;
+  const title = formatJobScheduleLabel(job);
+  const vehicle = formatJobVehicleLabel(job.vehicle);
   const start = job.scheduledStart ? new Date(job.scheduledStart) : null;
   const timeLabel = start
     ? start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
     : "";
   const hasQuote = Boolean(job.quote);
   const commonClass = cn(
-    "group flex cursor-grab items-center gap-1.5 truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium text-left w-full active:cursor-grabbing",
+    "group flex cursor-grab items-start gap-1.5 rounded-md border px-1.5 py-0.5 text-[11px] font-medium text-left w-full active:cursor-grabbing",
     tone.chip,
   );
+  // Vehicle line only in non-compact contexts (day/week views). Month cells
+  // are cramped and already show a lot of chips per day — a second line
+  // there would force too much vertical growth.
+  const showVehicle = !compact && !!vehicle;
   const label = (
     <>
-      <GripVertical className="h-2.5 w-2.5 opacity-40 group-hover:opacity-100" />
-      <span className="truncate">
-        {!compact && timeLabel ? `${timeLabel} · ` : ""}
-        {title}
+      <GripVertical className="mt-[3px] h-2.5 w-2.5 shrink-0 opacity-40 group-hover:opacity-100" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">
+          {!compact && timeLabel ? `${timeLabel} · ` : ""}
+          {title}
+        </span>
+        {showVehicle && (
+          <span className="block truncate text-[10px] font-normal opacity-70">
+            {vehicle}
+          </span>
+        )}
       </span>
     </>
   );
@@ -401,7 +414,7 @@ function JobChip({
         }}
         onDragEnd={onDragEnd}
         className={commonClass}
-        title={`${title} · ${stageLabelFor(job.status)}${timeLabel ? ` · ${timeLabel}` : ""}`}
+        title={`${title}${vehicle ? ` · ${vehicle}` : ""} · ${stageLabelFor(job.status)}${timeLabel ? ` · ${timeLabel}` : ""}`}
       >
         {label}
       </Link>

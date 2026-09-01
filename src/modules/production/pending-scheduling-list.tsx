@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { JobStatusBadge } from "./job-status-badge";
+import { formatJobScheduleLabel } from "@/lib/schedule-labels";
 
 /**
  * Pending Scheduling panel — jobs that a customer has approved but no one
@@ -134,7 +135,7 @@ export function PendingSchedulingList({
                       <JobStatusBadge status={job.status} />
                     </div>
                     <div className="mt-0.5 truncate text-sm">
-                      {job.title || job.customer.name}
+                      {formatJobScheduleLabel(job)}
                     </div>
                     {variant !== "compact" && vehicle && (
                       <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">

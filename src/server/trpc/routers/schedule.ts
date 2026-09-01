@@ -50,9 +50,23 @@ export const scheduleRouter = createTRPCRouter({
             select: {
               id: true,
               number: true,
+              title: true,
               status: true,
               customer: { select: { name: true } },
               vehicle: { select: { year: true, make: true, model: true } },
+              quote: {
+                select: {
+                  items: {
+                    orderBy: { sortOrder: "asc" },
+                    select: {
+                      description: true,
+                      isUpsell: true,
+                      upsellAccepted: true,
+                      sortOrder: true,
+                    },
+                  },
+                },
+              },
             },
           },
           bay: { select: { id: true, name: true } },

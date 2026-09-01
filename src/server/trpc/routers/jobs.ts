@@ -81,7 +81,21 @@ export const jobsRouter = createTRPCRouter({
           customer: { select: { id: true, name: true } },
           vehicle: { select: { id: true, year: true, make: true, model: true, trim: true, vin: true } },
           bay: { select: { id: true, name: true } },
-          quote: { select: { id: true, number: true } },
+          quote: {
+            select: {
+              id: true,
+              number: true,
+              items: {
+                orderBy: { sortOrder: "asc" },
+                select: {
+                  description: true,
+                  isUpsell: true,
+                  upsellAccepted: true,
+                  sortOrder: true,
+                },
+              },
+            },
+          },
         },
       });
       return { items };
@@ -114,7 +128,21 @@ export const jobsRouter = createTRPCRouter({
           vehicle: {
             select: { id: true, year: true, make: true, model: true, trim: true },
           },
-          quote: { select: { id: true, number: true } },
+          quote: {
+            select: {
+              id: true,
+              number: true,
+              items: {
+                orderBy: { sortOrder: "asc" },
+                select: {
+                  description: true,
+                  isUpsell: true,
+                  upsellAccepted: true,
+                  sortOrder: true,
+                },
+              },
+            },
+          },
         },
       });
       return { items };

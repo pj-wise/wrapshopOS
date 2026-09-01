@@ -14,6 +14,10 @@ import { EditQuoteDialog } from "@/modules/quotes/edit-quote-dialog";
 import { useFeature } from "@/hooks/use-features";
 import { CheckInPrepDialog } from "./check-in-prep-dialog";
 import { DeliverConfirmDialog } from "./deliver-confirm-dialog";
+import {
+  formatJobScheduleLabel,
+  formatJobVehicleLabel,
+} from "@/lib/schedule-labels";
 
 type JobRow = RouterOutputs["jobs"]["list"]["items"][number];
 type WorkflowStageRow = RouterOutputs["workflow"]["getStages"]["stages"][number];
@@ -234,9 +238,7 @@ function JobCard({
   dimmed?: boolean;
   onEdit: () => void;
 }) {
-  const vehicle = job.vehicle
-    ? [job.vehicle.year, job.vehicle.make, job.vehicle.model].filter(Boolean).join(" ")
-    : null;
+  const vehicle = formatJobVehicleLabel(job.vehicle);
   const hasQuote = Boolean(job.quote);
 
   // With a quote → click opens the modal. Without a quote (rare — a job
@@ -282,7 +284,7 @@ function JobCardBody({ job, vehicle }: { job: JobRow; vehicle: string | null }) 
             )}
           </div>
           <div className="mt-1 truncate text-sm font-medium">
-            {job.title || job.customer.name}
+            {formatJobScheduleLabel(job)}
           </div>
         </div>
       </div>
