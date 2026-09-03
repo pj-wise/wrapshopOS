@@ -23,6 +23,7 @@ import { createSupabaseStorageProvider } from "./storage/supabase";
 import { createResendProvider } from "./email/resend";
 import { noopEmailProvider } from "./email/noop";
 import { noopMessagingProvider } from "./messaging/noop";
+import { createTwilioProvider } from "./messaging/twilio";
 import { noopAiProvider } from "./ai/noop";
 import { noopAddressProvider } from "./address/noop";
 import { noopPatternProvider } from "./pattern/noop";
@@ -82,6 +83,18 @@ function platformDefaultsFor(capability: IntegrationCapability): {
           apiKey: env.RESEND_API_KEY,
           defaultFrom: env.EMAIL_FROM,
           webhookSecret: env.RESEND_WEBHOOK_SECRET,
+        },
+      };
+    case "messaging":
+      // Platform-provisioned Twilio fallback. Optional — if these are unset
+      // the resolver returns an empty config and consumers fall through to
+      // the noop provider (or the tenant's own paste, if any).
+      return {
+        provider,
+        config: {
+          accountSid: env.TWILIO_ACCOUNT_SID,
+          authToken: env.TWILIO_AUTH_TOKEN,
+          messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID,
         },
       };
     default:
@@ -194,9 +207,16 @@ export const getEmailProvider = cache(async (orgId: string): Promise<EmailProvid
   throw new Error(`Unknown email provider: ${resolved.provider}`);
 });
 
-export const getMessagingProvider = cache(async (_orgId: string): Promise<MessagingProvider> => {
-  // No real messaging provider is enabled by default in MVP.
-  // TODO(stretch:sms.send.real): resolve twilio / telnyx per-org integration.
+export const getMessagingProvider = cache(async (orgId: string): Promise<MessagingProvider> => {
+  const resolved = await resolveProviderConfig(orgId, "messaging");
+  if (resolved.provider === "twilio") {
+    const { accountSid, authToken, messagingServiceSid } = resolved.config;
+    if (accountSid && authToken && messagingServiceSid) {
+      return createTwilioProvider({ accountSid, authToken, messagingServiceSid });
+    }
+    return noopMessagingProvider;
+  }
+  // Unknown provider (telnyx, etc.) or nothing wired — fall through to noop.
   return noopMessagingProvider;
 });
 

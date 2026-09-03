@@ -9,9 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/lib/money";
+import { NewMaterialDialog } from "./new-material-dialog";
 
 export function MaterialList() {
   const [q, setQ] = useState("");
+  const [openNew, setOpenNew] = useState(false);
   const query = trpc.materials.list.useQuery({ q: q || undefined });
 
   return (
@@ -23,11 +25,13 @@ export function MaterialList() {
             Films, PPFs, tints, ceramics — and the rolls you keep on the shelf.
           </p>
         </div>
-        <Button disabled>
+        <Button onClick={() => setOpenNew(true)}>
           <Plus className="mr-2 h-4 w-4" />
           New material
         </Button>
       </div>
+
+      <NewMaterialDialog open={openNew} onOpenChange={setOpenNew} />
 
       <div className="mb-4 relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

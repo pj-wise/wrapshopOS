@@ -29,6 +29,12 @@ export const env = createEnv({
     QBO_WEBHOOK_VERIFIER: z.string().min(1).optional(),
     QBO_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox").optional(),
 
+    // Twilio (SMS/MMS). Platform-default fallback — shops can also paste
+    // their own via Admin → Integrations → Twilio → Configure.
+    TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
+    TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
+    TWILIO_MESSAGING_SERVICE_SID: z.string().min(1).optional(),
+
     // Inngest
     INNGEST_EVENT_KEY: z.string().min(1).optional(),
     INNGEST_SIGNING_KEY: z.string().min(1).optional(),
@@ -48,6 +54,10 @@ export const env = createEnv({
     // you test the invoice-email flow end-to-end without risking a real
     // customer inbox during dev iteration.
     DEV_EMAIL_OVERRIDE: z.string().email().optional(),
+
+    // Same idea for SMS. E.164-formatted phone number (e.g. "+15551234567").
+    // Enforced inside TwilioMessagingProvider.send when NODE_ENV != production.
+    DEV_SMS_OVERRIDE: z.string().min(1).optional(),
   },
 
   client: {
@@ -76,12 +86,17 @@ export const env = createEnv({
     QBO_WEBHOOK_VERIFIER: process.env.QBO_WEBHOOK_VERIFIER,
     QBO_ENVIRONMENT: process.env.QBO_ENVIRONMENT,
 
+    TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
+    TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
+    TWILIO_MESSAGING_SERVICE_SID: process.env.TWILIO_MESSAGING_SERVICE_SID,
+
     INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
     INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY,
 
     SENTRY_DSN: process.env.SENTRY_DSN,
     PLATFORM_ADMIN_EMAILS: process.env.PLATFORM_ADMIN_EMAILS,
     DEV_EMAIL_OVERRIDE: process.env.DEV_EMAIL_OVERRIDE,
+    DEV_SMS_OVERRIDE: process.env.DEV_SMS_OVERRIDE,
 
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,

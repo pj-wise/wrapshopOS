@@ -167,7 +167,7 @@ export const INTEGRATIONS = [
     mvpDefault: true,
   },
 
-  // ==== Messaging (post-MVP) ====
+  // ==== Messaging ====
   {
     id: "twilio",
     name: "Twilio",
@@ -177,6 +177,35 @@ export const INTEGRATIONS = [
     authType: "api_key",
     enablesFeatures: ["messaging.sms", "messaging.mms"],
     requiredEnv: ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_MESSAGING_SERVICE_SID"],
+    configFields: [
+      {
+        key: "accountSid",
+        label: "Account SID",
+        type: "secret",
+        required: true,
+        placeholder: "AC…",
+        description:
+          "From console.twilio.com → Account → API keys & tokens. Starts with AC.",
+      },
+      {
+        key: "authToken",
+        label: "Auth Token",
+        type: "secret",
+        required: true,
+        placeholder: "••••",
+        description:
+          "Same page as the Account SID. Never shown after save — paste again to rotate.",
+      },
+      {
+        key: "messagingServiceSid",
+        label: "Messaging Service SID",
+        type: "secret",
+        required: true,
+        placeholder: "MG…",
+        description:
+          "Recommended over a raw From number — handles sender-pool routing + A2P 10DLC compliance. Starts with MG.",
+      },
+    ],
     docsUrl: "https://www.twilio.com/docs",
     description:
       "SMS + MMS. A2P 10DLC compliance required. Requires per-shop or platform-provisioned number.",
