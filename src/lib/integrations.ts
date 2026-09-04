@@ -14,6 +14,7 @@ export type IntegrationCapability =
   | "vehicle_data"
   | "email"
   | "messaging"
+  | "payments"
   | "accounting"
   | "storage"
   | "address"
@@ -145,6 +146,52 @@ export const INTEGRATIONS = [
     mvpDefault: true,
   },
 
+  // ==== Payments ====
+  {
+    id: "stripe",
+    name: "Stripe",
+    capability: "payments",
+    vendor: "Stripe",
+    costType: "usage_based",
+    authType: "api_key",
+    enablesFeatures: ["payments.stripe", "payments.deposits", "payments.online_links"],
+    requiredEnv: [],
+    configFields: [
+      {
+        key: "secretKey",
+        label: "Secret key",
+        type: "secret",
+        required: true,
+        placeholder: "sk_live_… or sk_test_…",
+        description:
+          "From Stripe → Developers → API keys. Use a Restricted key when possible.",
+      },
+      {
+        key: "publishableKey",
+        label: "Publishable key",
+        type: "secret",
+        required: true,
+        placeholder: "pk_live_… or pk_test_…",
+        description:
+          "Client-side key. Fine to be marked Secret here — the app exposes it only to authenticated shop users.",
+      },
+      {
+        key: "webhookSecret",
+        label: "Webhook signing secret",
+        type: "secret",
+        required: false,
+        placeholder: "whsec_…",
+        description:
+          "Optional but strongly recommended. Register endpoint at Stripe → Developers → Webhooks pointing at /api/webhooks/stripe.",
+      },
+    ],
+    docsUrl: "https://stripe.com/docs/api",
+    description:
+      "Collect deposits and invoice payments via Stripe Checkout. Independent of QuickBooks — payments and accounting are separate integrations.",
+    supportsHealthCheck: true,
+    mvpDefault: true,
+  },
+
   // ==== Accounting ====
   {
     id: "quickbooks",
@@ -156,8 +203,8 @@ export const INTEGRATIONS = [
     enablesFeatures: [
       "accounting.quickbooks",
       "accounting.invoice_sync",
-      "accounting.payments",
-      "accounting.online_payment_links",
+      "accounting.payment_sync",
+      "accounting.qbo_payment_links",
     ],
     requiredEnv: ["QBO_CLIENT_ID", "QBO_CLIENT_SECRET", "QBO_WEBHOOK_VERIFIER", "QBO_ENVIRONMENT"],
     docsUrl: "https://developer.intuit.com/app/developer/qbo/docs/get-started",

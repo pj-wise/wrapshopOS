@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Offline · WrapShop OS",
+  title: "Offline · autoLuxOS",
 };
 
 export default function OfflinePage() {
@@ -7,7 +7,7 @@ export default function OfflinePage() {
     <div className="flex min-h-screen items-center justify-center px-6 text-center">
       <div className="max-w-md">
         <div className="mx-auto mb-6 grid h-12 w-12 place-items-center rounded-md bg-neutral-900 text-neutral-50 dark:bg-neutral-100 dark:text-neutral-900">
-          W
+          aL
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">You&apos;re offline</h1>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">

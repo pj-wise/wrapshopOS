@@ -14,6 +14,7 @@ import type {
   EmailProvider,
   MessagingProvider,
   PatternProvider,
+  PaymentProvider,
   StorageProvider,
   VehicleDataProvider,
 } from "./types";
@@ -24,6 +25,7 @@ import { createResendProvider } from "./email/resend";
 import { noopEmailProvider } from "./email/noop";
 import { noopMessagingProvider } from "./messaging/noop";
 import { createTwilioProvider } from "./messaging/twilio";
+import { createStripeProvider } from "./payments/stripe";
 import { noopAiProvider } from "./ai/noop";
 import { noopAddressProvider } from "./address/noop";
 import { noopPatternProvider } from "./pattern/noop";
@@ -39,7 +41,7 @@ import { createQuickBooksAccountingProvider } from "./accounting/quickbooks";
  *     1. Tenant row in `ExternalIntegration` (config JSON is decrypted per
  *        field, then merged over platform defaults).
  *     2. Platform env vars — the "hybrid" mode from the plan: shops without
- *        their own credentials fall through to WrapShop OS's account.
+ *        their own credentials fall through to autoLuxOS's account.
  *     3. Nothing wired → provider consumers apply a noop.
  *
  *   `get<Capability>Provider(orgId)` then hands that config to the concrete
@@ -97,6 +99,12 @@ function platformDefaultsFor(capability: IntegrationCapability): {
           messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID,
         },
       };
+    case "payments":
+      // No platform-default Stripe: every shop configures their own account
+      // so money settles into THEIR bank. Returning an empty config means
+      // the resolver falls through to "not configured" for any shop that
+      // hasn't pasted their key.
+      return { provider, config: {} };
     default:
       return { provider, config: {} };
   }
@@ -232,6 +240,33 @@ export const getAccountingProvider = cache(async (orgId: string): Promise<Accoun
   }
   return createQuickBooksAccountingProvider(orgId);
 });
+
+/**
+ * Payment provider (Stripe). Independent of AccountingProvider — a shop can
+ * collect via Stripe AND sync to QBO, or use either alone. Returns null if
+ * the shop hasn't configured Stripe.
+ */
+export const getPaymentProvider = cache(
+  async (orgId: string): Promise<PaymentProvider | null> => {
+    const resolved = await resolveProviderConfig(orgId, "payments");
+    if (resolved.provider === "stripe") {
+      const { secretKey, publishableKey, webhookSecret } = resolved.config;
+      if (secretKey) {
+        return createStripeProvider({
+          secretKey,
+          publishableKey,
+          webhookSecret,
+        });
+      }
+    }
+    return null;
+  },
+);
+
+export async function isPaymentProviderConnected(orgId: string): Promise<boolean> {
+  const provider = await getPaymentProvider(orgId);
+  return provider !== null;
+}
 
 export async function isAccountingConnected(orgId: string): Promise<boolean> {
   const conn = await prisma.accountingConnection.findFirst({

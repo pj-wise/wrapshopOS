@@ -9,9 +9,9 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-8 flex items-center gap-2 font-semibold tracking-tight">
           <div className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900 text-neutral-50 dark:bg-neutral-100 dark:text-neutral-900">
-            W
+            aL
           </div>
-          <span>WrapShop OS</span>
+          <span>autoLuxOS</span>
         </div>
 
         <h1 className="text-2xl font-semibold">Sign in</h1>

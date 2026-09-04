@@ -56,8 +56,8 @@ export async function createOrganizationAction(
       data: {
         name: parsed.data.name,
         slug: `${slug}-${randomSuffix()}`,
-        tier: "starter",
-        subscriptionStatus: "trialing",
+        tier: "free",
+        subscriptionStatus: "active",
       },
     });
     await tx.location.create({

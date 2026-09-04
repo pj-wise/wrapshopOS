@@ -8,7 +8,7 @@ export const metadata = {
 };
 
 /**
- * Cross-org control panel for the WrapShop-OS operator. Guarded server-side
+ * Cross-org control panel for the autoLuxOS operator. Guarded server-side
  * by the platform-admin bit on the session (env-driven allow list). Users
  * who aren't platform admins get bounced to the shop-scoped settings page.
  */

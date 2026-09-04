@@ -131,6 +131,56 @@ export interface MessagingProvider extends ProviderBase {
 }
 
 // ============================================================================
+// Payments (Stripe today; Square / etc later)
+//
+// Deliberately SEPARATE from Accounting: Stripe collects money, QuickBooks
+// reconciles the ledger. A shop configures both independently.
+// ============================================================================
+
+export type PaymentCheckoutSession = {
+  /** Provider's session identifier (Stripe: cs_live_… / cs_test_…). */
+  externalId: string;
+  /** Hosted URL the customer opens to pay. */
+  url: string;
+  /** Amount the session was created for. */
+  amountCents: number;
+  currency: string;
+  /** Local invoice this session is tied to (round-tripped via metadata). */
+  invoiceId: string;
+  /** When the URL stops working. */
+  expiresAt: string; // ISO
+};
+
+export type PaymentSessionStatus = "open" | "complete" | "expired";
+
+export type PaymentWebhookOutcome =
+  | { kind: "checkout.completed"; sessionExternalId: string; invoiceId: string; amountReceivedCents: number; paymentIntentId?: string }
+  | { kind: "payment_intent.succeeded"; paymentIntentId: string; amountReceivedCents: number }
+  | { kind: "payment_intent.failed"; paymentIntentId: string; message?: string }
+  | { kind: "ignored"; eventType: string };
+
+export interface PaymentProvider extends ProviderBase {
+  /** Create a hosted checkout session for one invoice. Metadata carries invoiceId. */
+  createCheckoutSession(input: {
+    invoiceId: string;
+    amountCents: number;
+    currency?: string; // defaults to "USD"
+    customerEmail?: string;
+    description?: string;
+    successUrl: string;
+    cancelUrl: string;
+  }): Promise<PaymentCheckoutSession>;
+
+  getSessionStatus(externalId: string): Promise<PaymentSessionStatus>;
+
+  /** Parse + verify an incoming webhook. Returns a shape-typed outcome. */
+  handleWebhook(input: {
+    rawBody: string;
+    signature: string;
+  }): Promise<PaymentWebhookOutcome>;
+}
+
+// ============================================================================
 // Accounting
 // ============================================================================
 

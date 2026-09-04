@@ -6,10 +6,10 @@ import type { MetadataRoute } from "next";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "WrapShop OS",
-    short_name: "WrapShop",
+    name: "autoLuxOS",
+    short_name: "autoLuxOS",
     description:
-      "Shop management for vinyl wrap, PPF, tint, and ceramic coating businesses.",
+      "Shop management built for wrap, tint, PPF, ceramic coating, and detailing businesses.",
     start_url: "/dashboard",
     display: "standalone",
     background_color: "#0a0a0a",

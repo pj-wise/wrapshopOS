@@ -10,6 +10,8 @@ import {
   requirePermission,
 } from "../init";
 import { recordTimelineEvent } from "@/server/audit/timeline";
+import { getPaymentProvider } from "@/server/providers/registry";
+import { env } from "@/env";
 
 export const paymentsRouter = createTRPCRouter({
   list: orgProcedure
@@ -163,5 +165,86 @@ export const paymentsRouter = createTRPCRouter({
           },
         });
       });
+    }),
+
+  /**
+   * Is a payment provider (Stripe) configured for this org? Powers the
+   * "Collect with Stripe" affordance on invoice detail pages.
+   */
+  providerStatus: orgProcedure
+    .use(requirePermission("payments:read"))
+    .query(async ({ ctx }) => {
+      const provider = await getPaymentProvider(ctx.session.organizationId);
+      return {
+        connected: provider !== null,
+        provider: provider?.name ?? null,
+      };
+    }),
+
+  /**
+   * Create a Stripe Checkout session for the invoice's outstanding balance.
+   * Returns the hosted URL — the shop's UI redirects the customer to it
+   * (or texts/emails it via the invoice email).
+   */
+  createStripeCheckout: orgProcedure
+    .use(requirePermission("payments:record"))
+    .meta({ audit: { entity: "invoice", action: "stripe_checkout" } })
+    .input(
+      z.object({
+        invoiceId: z.string().uuid(),
+        /** Override amount (partial charge). Defaults to full remaining balance. */
+        amountCents: z.number().int().min(50).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const provider = await getPaymentProvider(ctx.session.organizationId);
+      if (!provider) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Stripe is not connected. Configure it in Admin → Integrations.",
+        });
+      }
+
+      const invoice = await ctx.db.invoice.findFirst({
+        where: { id: input.invoiceId, deletedAt: null },
+        include: { customer: { select: { name: true, email: true } } },
+      });
+      if (!invoice) throw new TRPCError({ code: "NOT_FOUND" });
+      if (invoice.balanceCents <= 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Invoice has no outstanding balance.",
+        });
+      }
+
+      const amount = input.amountCents ?? invoice.balanceCents;
+      const invoiceLabel = `INV-${String(invoice.number).padStart(4, "0")}`;
+
+      const session = await provider.createCheckoutSession({
+        invoiceId: invoice.id,
+        amountCents: amount,
+        currency: invoice.currency,
+        customerEmail: invoice.customer.email ?? undefined,
+        description: `${invoiceLabel} — ${invoice.customer.name}`,
+        successUrl: `${env.NEXT_PUBLIC_APP_URL}/invoices/${invoice.id}?paid=1`,
+        cancelUrl: `${env.NEXT_PUBLIC_APP_URL}/invoices/${invoice.id}`,
+      });
+
+      // Stash the URL + session id on the invoice for retrieval by email
+      // renderers, "Copy pay link" buttons, etc.
+      await ctx.db.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          stripeCheckoutUrl: session.url,
+          stripeCheckoutSessionId: session.externalId,
+        },
+      });
+
+      return {
+        url: session.url,
+        sessionId: session.externalId,
+        amountCents: amount,
+        expiresAt: session.expiresAt,
+      };
     }),
 });
