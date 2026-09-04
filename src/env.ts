@@ -45,7 +45,7 @@ export const env = createEnv({
     // Platform admin emails — comma-separated list. Users whose Supabase
     // Auth email matches (case-insensitive) get cross-org superpowers:
     // list/switch/edit any org's tier + integrations. Not a role in the
-    // org RBAC catalog — it's a WrapShop-OS-operator-level flag scoped
+    // org RBAC catalog — it's an autoLuxOS-operator-level flag scoped
     // to whoever runs the platform.
     PLATFORM_ADMIN_EMAILS: z.string().default(""),
 

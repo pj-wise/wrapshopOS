@@ -1317,6 +1317,9 @@ model Invoice {
   qboSyncStatus   String    @default("not_synced") // not_synced|syncing|synced|error|disconnected
   qboSyncError    String?
   qboPayLink      String? // shareable URL for QBO-hosted customer payment
+  // Stripe payment session (populated when a Checkout link is generated).
+  stripeCheckoutUrl        String?
+  stripeCheckoutSessionId  String?
   createdByUserId String?   @db.Uuid
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -1368,9 +1371,12 @@ model Payment {
   invoiceId        String?  @db.Uuid // null = unmatched (reconciliation queue)
   customerId       String?  @db.Uuid
   amountCents      Int
-  method           String   @default("other") // card|ach|cash|check|qbo|other
+  method           String   @default("other") // card|ach|cash|check|qbo|stripe|other
   referenceNumber  String?
   qboPaymentId     String?
+  // Stripe fields (populated when payment arrived via Stripe Checkout).
+  stripePaymentIntentId String?
+  stripeChargeId        String?
   receivedAt       DateTime @default(now())
   recordedByUserId String?  @db.Uuid
   notes            String?
@@ -1384,6 +1390,7 @@ model Payment {
   @@index([organizationId, receivedAt])
   @@index([invoiceId])
   @@index([qboPaymentId])
+  @@index([stripePaymentIntentId])
   @@map("payments")
   @@schema("public")
 }

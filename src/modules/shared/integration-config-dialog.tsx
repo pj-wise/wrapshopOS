@@ -123,7 +123,7 @@ export function IntegrationConfigDialog({
             <DialogDescription>
               {hasOverride
                 ? "Your shop has its own override in place. Update or clear individual fields; blank fields keep the currently-saved value."
-                : "Your shop currently uses the WrapShop OS platform default. Add your own credentials to send from your domain."}
+                : "Your shop currently uses the autoLuxOS platform default. Add your own credentials to send from your domain."}
             </DialogDescription>
           </DialogHeader>
 
@@ -222,7 +222,7 @@ export function IntegrationConfigDialog({
         open={confirmRevert}
         onOpenChange={setConfirmRevert}
         title={`Revert ${def.name}?`}
-        description={`This deletes your shop's saved ${def.name} credentials. Outbound email will fall back to the WrapShop OS platform default.`}
+        description={`This deletes your shop's saved ${def.name} credentials. Outbound email will fall back to the autoLuxOS platform default.`}
         confirmLabel="Revert"
         onConfirm={onRevert}
       />

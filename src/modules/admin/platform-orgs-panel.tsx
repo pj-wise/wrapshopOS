@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type Tier = "starter" | "pro" | "enterprise";
+type Tier = "free" | "solo" | "shop" | "pro" | "enterprise";
 
 /**
  * Platform operator view — one row per org across every tenant. The
@@ -77,7 +77,9 @@ function OrgRow({
   };
 }) {
   const update = trpc.platform.updateOrgTier.useMutation();
-  const [selected, setSelected] = useState<Tier>((org.tier as Tier) ?? "starter");
+  const [selected, setSelected] = useState<Tier>(
+    (org.tier as Tier) ?? "free",
+  );
   const dirty = selected !== org.tier;
 
   async function onSave() {
@@ -122,7 +124,9 @@ function OrgRow({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="starter">Starter</SelectItem>
+            <SelectItem value="free">Free</SelectItem>
+            <SelectItem value="solo">Solo</SelectItem>
+            <SelectItem value="shop">Shop</SelectItem>
             <SelectItem value="pro">Pro</SelectItem>
             <SelectItem value="enterprise">Enterprise</SelectItem>
           </SelectContent>
@@ -141,16 +145,21 @@ function OrgRow({
   );
 }
 
+const TIER_TONES: Record<Tier, string> = {
+  free: "bg-neutral-200 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-100",
+  solo: "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100",
+  shop: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100",
+  pro: "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100",
+  enterprise:
+    "bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-100",
+};
+
 function TierPill({ tier }: { tier: Tier }) {
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-        tier === "enterprise"
-          ? "bg-violet-100 text-violet-900 dark:bg-violet-900/40 dark:text-violet-100"
-          : tier === "pro"
-            ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100"
-            : "bg-neutral-200 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-100",
+        TIER_TONES[tier] ?? TIER_TONES.free,
       )}
     >
       <Zap className="h-3 w-3" />

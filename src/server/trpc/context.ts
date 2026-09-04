@@ -5,8 +5,14 @@ import type { NextRequest } from "next/server";
 import { createSupabaseServerClient } from "@/server/auth/supabase-server";
 import { isPlatformAdminEmail } from "@/server/auth/session";
 import { prisma } from "@/server/db";
+import { normalizeLegacyTier, type SubscriptionTier } from "@/lib/features";
 
-export type OrgTier = "starter" | "pro" | "enterprise";
+/**
+ * Re-export the tier type from features.ts as `OrgTier` so downstream files
+ * keep working with the old alias. Legacy `"starter"` values still in the
+ * DB are normalized to `"solo"` via normalizeLegacyTier on read.
+ */
+export type OrgTier = SubscriptionTier;
 
 export type MinimalSession = {
   userId: string;
@@ -64,7 +70,7 @@ export async function createTRPCContext(opts: { req: NextRequest }): Promise<TRP
       userId: user.id,
       email: user.email ?? "",
       organizationId: member.organizationId,
-      organizationTier: member.organization.tier as OrgTier,
+      organizationTier: normalizeLegacyTier(member.organization.tier),
       locationId: member.locationId,
       memberId: member.id,
       roleKey: member.role.key,

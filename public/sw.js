@@ -1,5 +1,5 @@
 /**
- * WrapShop OS service worker.
+ * autoLuxOS service worker.
  *
  * Minimal by design — Next 16 uses Turbopack which doesn't yet play nicely
  * with Serwist/Workbox webpack integrations, so we hand-roll the SW.

@@ -6,6 +6,7 @@ import { cache } from "react";
 import { createSupabaseServerClient } from "./supabase-server";
 import { prisma } from "@/server/db";
 import { env } from "@/env";
+import { normalizeLegacyTier, type SubscriptionTier } from "@/lib/features";
 
 export type AppSession = {
   userId: string;
@@ -14,7 +15,7 @@ export type AppSession = {
   organizationId: string;
   organizationSlug: string;
   organizationName: string;
-  organizationTier: "starter" | "pro" | "enterprise";
+  organizationTier: SubscriptionTier;
   locationId: string | null;
   memberId: string;
   roleKey: string;
@@ -23,7 +24,7 @@ export type AppSession = {
    * True when the signed-in user's email is in `PLATFORM_ADMIN_EMAILS`.
    * Grants cross-org visibility + tier control via `/admin/platform`.
    * Not the same as any org-level role — this bit is scoped to the
-   * WrapShop-OS-operator (i.e. me/us), not to a shop tenant.
+   * autoLuxOS operator (i.e. me/us), not to a shop tenant.
    */
   isPlatformAdmin: boolean;
 };
@@ -78,7 +79,7 @@ export const getAppSession = cache(async (): Promise<AppSession> => {
     organizationId: member.organizationId,
     organizationSlug: member.organization.slug,
     organizationName: member.organization.name,
-    organizationTier: member.organization.tier as "starter" | "pro" | "enterprise",
+    organizationTier: normalizeLegacyTier(member.organization.tier),
     locationId: member.locationId,
     memberId: member.id,
     roleKey: member.role.key,

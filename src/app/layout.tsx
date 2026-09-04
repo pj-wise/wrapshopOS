@@ -24,9 +24,9 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "WrapShop OS",
+  title: "autoLuxOS",
   description:
-    "Shop management for vinyl wrap, PPF, tint, and ceramic coating businesses.",
+    "Shop management built for wrap, tint, PPF, ceramic coating, and detailing businesses.",
   manifest: "/manifest.webmanifest",
 };
 

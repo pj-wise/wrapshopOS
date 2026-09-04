@@ -11,7 +11,7 @@ import {
 /**
  * Platform-operator surface. Everything here is gated on
  * `session.isPlatformAdmin` (driven by `PLATFORM_ADMIN_EMAILS`) — NOT any
- * org-level role. Adds cross-org visibility so the WrapShop-OS operator
+ * org-level role. Adds cross-org visibility so the autoLuxOS operator
  * (me) can flip a tier or list every shop without joining their org.
  *
  * Not for tenant-facing UI. The `/admin/platform` page is the only
@@ -40,7 +40,7 @@ export const platformRouter = createTRPCRouter({
     .input(
       z.object({
         orgId: z.string().uuid(),
-        tier: z.enum(["starter", "pro", "enterprise"]),
+        tier: z.enum(["free", "solo", "shop", "pro", "enterprise"]),
       }),
     )
     .mutation(async ({ input }) => {

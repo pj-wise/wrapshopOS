@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { type ReactNode, useState } from "react";
-import { Sparkles, Lock, Wrench, Star, Info } from "lucide-react";
+import { ArrowRight, Sparkles, Lock, Wrench, Star, Info } from "lucide-react";
 
 import type { FeatureKey } from "@/lib/features";
 import { getFeature } from "@/lib/features";
+import { PLANS, formatPriceCents, type PlanId } from "@/lib/plans";
 import { useFeature } from "@/hooks/use-features";
 import { cn } from "@/lib/utils";
 import type { ResolvedFeature } from "@/server/features/service";
@@ -130,6 +132,20 @@ export function FeatureUnavailableDialog({
   const def = getFeature(feature);
   const resolved = useFeature(feature);
 
+  // Route the CTA based on the reason.
+  //  - subscription:below-tier → link to /pricing with anchor to the minimum plan.
+  //  - integration:missing     → link to /admin/integrations.
+  //  - anything else           → close only.
+  const requiresUpgrade = resolved.state === "requires_subscription";
+  const requiresIntegration = resolved.state === "requires_integration";
+  const targetPlan: PlanId | null = requiresUpgrade
+    ? (def.minimumTier as PlanId)
+    : null;
+  const targetPlanConfig = targetPlan ? PLANS[targetPlan] : null;
+
+  const upgradeHref = "/pricing";
+  const integrationHref = "/admin/integrations";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
@@ -152,6 +168,32 @@ export function FeatureUnavailableDialog({
           >
             Close
           </button>
+          {requiresIntegration && (
+            <Link
+              href={integrationHref}
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-neutral-50 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+            >
+              Set up integration
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          )}
+          {requiresUpgrade && targetPlanConfig && (
+            <Link
+              href={upgradeHref}
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-neutral-50 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+            >
+              Upgrade to {targetPlanConfig.displayName}
+              {targetPlanConfig.monthlyPriceCents != null &&
+                targetPlanConfig.monthlyPriceCents > 0 && (
+                  <span className="opacity-90">
+                    — {formatPriceCents(targetPlanConfig.monthlyPriceCents)}/mo
+                  </span>
+                )}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          )}
         </div>
       </div>
     </div>

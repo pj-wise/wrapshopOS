@@ -1,6 +1,8 @@
-# WrapShop OS
+# autoLuxOS
 
-Shop-management PWA for automotive restyling businesses — vinyl wraps, PPF, tint, ceramic coating. Multi-tenant, QuickBooks-first billing, provider-abstracted so any external API is swappable.
+Shop-management PWA built for wrap, tint, PPF, ceramic coating, and detailing businesses. Multi-tenant, Stripe + QuickBooks integrations, provider-abstracted so any external API is swappable.
+
+Repo directory + npm workspace name remain `wrapshop-os` for infrastructure stability (deployment, Inngest client id, storage bucket paths).
 
 ## What's inside
 
