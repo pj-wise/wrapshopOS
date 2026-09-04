@@ -67,7 +67,7 @@ export default function LandingPage() {
             <div className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900 text-neutral-50 dark:bg-neutral-100 dark:text-neutral-900">
               aL
             </div>
-            <span>autoLuxOS</span>
+            <span className="hidden sm:inline">autoLuxOS</span>
           </div>
           <nav className="hidden items-center gap-6 text-sm md:flex">
             <a
