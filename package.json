@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "dev:inngest": "pnpm dlx inngest-cli@latest dev -u http://localhost:3000/api/inngest",
-    "build": "next build",
+    "build": "prisma generate && next build",
+    "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
