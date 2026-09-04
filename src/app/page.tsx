@@ -82,9 +82,12 @@ export default function LandingPage() {
             >
               Pricing
             </Link>
+          </nav>
+          <div className="flex items-center gap-2 text-sm sm:gap-3 md:gap-4">
+            {/* Calculator pill — always visible; compresses on mobile. */}
             <Link
               href="/calculator"
-              className="group relative inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-900 shadow-sm transition-all hover:border-emerald-500 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/50"
+              className="group relative inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-900 shadow-sm transition-all hover:border-emerald-500 hover:bg-emerald-100 hover:shadow-md sm:gap-2 sm:px-3 sm:py-1.5 sm:text-sm dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/50"
             >
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -95,19 +98,12 @@ export default function LandingPage() {
                 Free
               </span>
             </Link>
-          </nav>
-          <div className="flex items-center gap-4 text-sm">
             <Link
               href="/login"
-              className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+              className="inline-flex items-center gap-1 rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-neutral-50 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
               Sign in
-            </Link>
-            <Link
-              href="/signup"
-              className="inline-flex items-center gap-1 rounded-md bg-neutral-900 px-3 py-1.5 text-neutral-50 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
-            >
-              Get started <ArrowRight className="h-3.5 w-3.5" />
+              <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
         </div>

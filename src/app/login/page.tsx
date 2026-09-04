@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 
 import { AuthErrorBanner } from "./auth-error-banner";
@@ -7,12 +8,15 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center px-6">
       <div className="w-full max-w-sm">
-        <div className="mb-8 flex items-center gap-2 font-semibold tracking-tight">
+        <Link
+          href="/"
+          className="mb-8 inline-flex items-center gap-2 font-semibold tracking-tight"
+        >
           <div className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900 text-neutral-50 dark:bg-neutral-100 dark:text-neutral-900">
             aL
           </div>
           <span>autoLuxOS</span>
-        </div>
+        </Link>
 
         <h1 className="text-2xl font-semibold">Sign in</h1>
         <p className="mb-6 mt-2 text-sm text-muted-foreground">
@@ -24,6 +28,16 @@ export default function LoginPage() {
           <AuthErrorBanner />
           <SignInForm />
         </Suspense>
+
+        <p className="mt-8 text-center text-sm text-muted-foreground">
+          New to autoLuxOS?{" "}
+          <Link
+            href="/signup"
+            className="font-medium text-foreground hover:underline"
+          >
+            Create an account
+          </Link>
+        </p>
       </div>
     </div>
   );
