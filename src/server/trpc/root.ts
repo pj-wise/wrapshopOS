@@ -30,6 +30,7 @@ import { workflowRouter } from "./routers/workflow";
 import { integrationsRouter } from "./routers/integrations";
 import { checkInRouter } from "./routers/check-in";
 import { platformRouter } from "./routers/platform";
+import { pricingCalculatorRouter } from "./routers/pricing-calculator";
 
 export const appRouter = createTRPCRouter({
   health: healthRouter,
@@ -61,6 +62,7 @@ export const appRouter = createTRPCRouter({
   integrations: integrationsRouter,
   checkIn: checkInRouter,
   platform: platformRouter,
+  pricingCalculator: pricingCalculatorRouter,
 });
 
 export type AppRouter = typeof appRouter;

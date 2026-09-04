@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import {
+  Calculator,
   LayoutDashboard,
   Inbox,
   Users,
@@ -42,6 +43,7 @@ const NAV_SECTIONS = [
       { href: "/customers", label: "Customers", icon: Users, permission: "crm:read" },
       { href: "/vehicles", label: "Vehicles", icon: Car, permission: "crm:read" },
       { href: "/quotes", label: "Quotes", icon: FileText, permission: "quotes:read" },
+      { href: "/pricing-calculator", label: "Pricing Calculator", icon: Calculator, permission: "quotes:read" },
       { href: "/products", label: "Products", icon: PackageOpen, permission: "settings:read" },
     ],
   },

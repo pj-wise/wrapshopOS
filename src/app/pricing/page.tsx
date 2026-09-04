@@ -37,6 +37,12 @@ export default function PricingPage() {
               Home
             </Link>
             <Link
+              href="/calculator"
+              className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+            >
+              Calculator
+            </Link>
+            <Link
               href="/login"
               className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
             >

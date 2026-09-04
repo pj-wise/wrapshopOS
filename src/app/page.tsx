@@ -82,6 +82,19 @@ export default function LandingPage() {
             >
               Pricing
             </Link>
+            <Link
+              href="/calculator"
+              className="group relative inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-900 shadow-sm transition-all hover:border-emerald-500 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/50"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              Calculator
+              <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white">
+                Free
+              </span>
+            </Link>
           </nav>
           <div className="flex items-center gap-4 text-sm">
             <Link

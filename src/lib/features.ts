@@ -148,7 +148,16 @@ export const FEATURES = [
     category: "core",
     defaultState: "enabled",
     minimumTier: "free",
-    description: "Coverage / vehicle-size / hourly / flat / variable pricing models.",
+    description: "Wrap / tint / PPF estimator with per-sqft rates + labor + margin controls.",
+    upgradeCopy: "",
+  },
+  {
+    key: "core.pricing_calculator_save",
+    name: "Save calculator estimates",
+    category: "core",
+    defaultState: "enabled",
+    minimumTier: "free",
+    description: "Persist calculator estimates as draft quotes tied to a customer.",
     upgradeCopy: "",
   },
 
