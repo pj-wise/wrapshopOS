@@ -10,7 +10,9 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "autoLuxOS",
     description:
       "Shop management built for wrap, tint, PPF, ceramic coating, and detailing businesses.",
-    start_url: "/dashboard",
+    // Smart launcher: /launch dispatches to /dashboard when signed in or to
+    // /calculator when not — much better first-run UX for a fresh install.
+    start_url: "/launch",
     display: "standalone",
     background_color: "#0a0a0a",
     theme_color: "#0a0a0a",

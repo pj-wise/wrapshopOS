@@ -14,6 +14,7 @@ import {
 
 import { PricingCards } from "@/modules/marketing/pricing-cards";
 import { EnterpriseBlock } from "@/modules/marketing/enterprise-block";
+import { LandingNavMenu } from "@/modules/marketing/landing-nav-menu";
 
 const FEATURES = [
   {
@@ -63,53 +64,16 @@ export default function LandingPage() {
     <div className="flex min-h-screen flex-col">
       <header className="border-b border-neutral-200 dark:border-neutral-800">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-2 font-semibold tracking-tight">
+          <Link
+            href="/"
+            className="flex items-center gap-2 font-semibold tracking-tight"
+          >
             <div className="grid h-7 w-7 place-items-center rounded-md bg-neutral-900 text-neutral-50 dark:bg-neutral-100 dark:text-neutral-900">
               aL
             </div>
             <span>autoLuxOS</span>
-          </div>
-          <nav className="hidden items-center gap-6 text-sm md:flex">
-            <a
-              href="#features"
-              className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-            >
-              Features
-            </a>
-            <Link
-              href="/pricing"
-              className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-            >
-              Pricing
-            </Link>
-            <Link
-              href="/calculator"
-              className="group relative inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-900 shadow-sm transition-all hover:border-emerald-500 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-700/60 dark:bg-emerald-900/30 dark:text-emerald-100 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/50"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-              Calculator
-              <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-white">
-                Free
-              </span>
-            </Link>
-          </nav>
-          <div className="flex items-center gap-4 text-sm">
-            <Link
-              href="/login"
-              className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/signup"
-              className="inline-flex items-center gap-1 rounded-md bg-neutral-900 px-3 py-1.5 text-neutral-50 hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
-            >
-              Get started <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
+          </Link>
+          <LandingNavMenu />
         </div>
       </header>
 
