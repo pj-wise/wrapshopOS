@@ -10,7 +10,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+import { DEMO_MODE, DEMO_SESSION_COOKIE, DEMO_USER_ID } from "@/lib/demo";
+
 export async function proxy(request: NextRequest) {
+  // Demo mode has no Supabase — the session is just a cookie.
+  if (DEMO_MODE) {
+    const signedIn = request.cookies.get(DEMO_SESSION_COOKIE)?.value === DEMO_USER_ID;
+    return routeGuard(request, signedIn, NextResponse.next({ request }));
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -39,12 +47,16 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  return routeGuard(request, !!user, response);
+}
+
+function routeGuard(request: NextRequest, signedIn: boolean, response: NextResponse) {
   const pathname = request.nextUrl.pathname;
   const isAppRoute = pathname.startsWith("/app") || matchesAppSegment(pathname);
   const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/signup");
 
   // Redirect unauthenticated users hitting the app to /login.
-  if (isAppRoute && !user) {
+  if (isAppRoute && !signedIn) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
@@ -52,7 +64,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Redirect authenticated users away from /login.
-  if (isAuthRoute && user) {
+  if (isAuthRoute && signedIn) {
     const url = request.nextUrl.clone();
     url.pathname = url.searchParams.get("next") ?? "/dashboard";
     url.searchParams.delete("next");

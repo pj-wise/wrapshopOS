@@ -2,7 +2,7 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 
-import { createSupabaseServerClient } from "@/server/auth/supabase-server";
+import { getAuthUser } from "@/server/auth/current-user";
 import { isPlatformAdminEmail } from "@/server/auth/session";
 import { prisma } from "@/server/db";
 import { normalizeLegacyTier, type SubscriptionTier } from "@/lib/features";
@@ -41,10 +41,7 @@ export type TRPCContext = {
  * (webhooks, health checks). authedProcedure / orgProcedure enforce.
  */
 export async function createTRPCContext(opts: { req: NextRequest }): Promise<TRPCContext> {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     return { req: opts.req, headers: opts.req.headers, session: null };

@@ -3,7 +3,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
-import { createSupabaseServerClient } from "./supabase-server";
+import { getAuthUser } from "./current-user";
 import { prisma } from "@/server/db";
 import { env } from "@/env";
 import { normalizeLegacyTier, type SubscriptionTier } from "@/lib/features";
@@ -45,10 +45,7 @@ export function isPlatformAdminEmail(email: string): boolean {
  * Redirects to /login or /onboarding as needed.
  */
 export const getAppSession = cache(async (): Promise<AppSession> => {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   if (!user) redirect("/login");
 
   const member = await prisma.orgMember.findFirst({
