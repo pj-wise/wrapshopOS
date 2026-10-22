@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createSupabaseServerClient } from "@/server/auth/supabase-server";
+import { getAuthUser } from "@/server/auth/current-user";
 
 /**
  * PWA launch dispatcher. The manifest's `start_url` points here so the OS
@@ -18,10 +18,7 @@ import { createSupabaseServerClient } from "@/server/auth/supabase-server";
 export const dynamic = "force-dynamic";
 
 export default async function LaunchPage() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (user) {
     redirect("/dashboard");

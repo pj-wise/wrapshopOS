@@ -3,6 +3,8 @@ import "server-only";
 import { PrismaClient } from "@prisma/client";
 
 import { env } from "@/env";
+import { DEMO_MODE } from "@/lib/demo";
+import { createDemoPrismaClient } from "@/server/demo/db";
 
 /**
  * Prisma client singleton. Do NOT import this directly from routes / procedures.
@@ -21,8 +23,10 @@ const globalForPrisma = globalThis as unknown as {
 
 export const prisma =
   globalForPrisma.prisma ??
-  new PrismaClient({
-    log: env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
-  });
+  (DEMO_MODE
+    ? createDemoPrismaClient()
+    : new PrismaClient({
+        log: env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+      }));
 
 if (env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;

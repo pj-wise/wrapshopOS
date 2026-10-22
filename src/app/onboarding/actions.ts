@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { createSupabaseServerClient } from "@/server/auth/supabase-server";
+import { getAuthUser } from "@/server/auth/current-user";
 import { provisionOrganizationForUser } from "@/server/auth/provisioning";
 
 const CreateOrgInput = z.object({
@@ -26,10 +26,7 @@ export async function createOrganizationAction(
   const parsed = CreateOrgInput.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input" };
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   if (!user) return { ok: false, error: "Not signed in" };
 
   const result = await provisionOrganizationForUser({

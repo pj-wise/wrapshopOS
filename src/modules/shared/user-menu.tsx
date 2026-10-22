@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ChevronDown, KeyRound, LogOut, User as UserIcon } from "lucide-react";
 
+import { DEMO_MODE } from "@/lib/demo";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { signOutDemoAction } from "@/server/demo/actions";
 
 export function UserMenu({
   email,
@@ -21,6 +23,10 @@ export function UserMenu({
   const [open, setOpen] = useState(false);
 
   async function signOut() {
+    if (DEMO_MODE) {
+      await signOutDemoAction();
+      return;
+    }
     const supabase = createSupabaseBrowserClient();
     const { error } = await supabase.auth.signOut();
     if (error) {

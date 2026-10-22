@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { DEMO_MODE } from "@/lib/demo";
 import { AuthErrorBanner } from "./auth-error-banner";
+import { DemoSignIn } from "./demo-sign-in";
 import { SignInForm } from "./sign-in-form";
 
 export default function LoginPage() {
@@ -20,24 +22,34 @@ export default function LoginPage() {
 
         <h1 className="text-2xl font-semibold">Sign in</h1>
         <p className="mb-6 mt-2 text-sm text-muted-foreground">
-          Use your password, or have a 6-digit code emailed to you.
+          {DEMO_MODE
+            ? "Take a look around a sample shop — no account needed."
+            : "Use your password, or have a 6-digit code emailed to you."}
         </p>
 
         {/* Both children read search params, so they need a Suspense boundary. */}
         <Suspense fallback={null}>
-          <AuthErrorBanner />
-          <SignInForm />
+          {DEMO_MODE ? (
+            <DemoSignIn />
+          ) : (
+            <>
+              <AuthErrorBanner />
+              <SignInForm />
+            </>
+          )}
         </Suspense>
 
-        <p className="mt-8 text-center text-sm text-muted-foreground">
-          New to autoLuxOS?{" "}
-          <Link
-            href="/signup"
-            className="font-medium text-foreground hover:underline"
-          >
-            Create an account
-          </Link>
-        </p>
+        {!DEMO_MODE && (
+          <p className="mt-8 text-center text-sm text-muted-foreground">
+            New to autoLuxOS?{" "}
+            <Link
+              href="/signup"
+              className="font-medium text-foreground hover:underline"
+            >
+              Create an account
+            </Link>
+          </p>
+        )}
       </div>
     </div>
   );
